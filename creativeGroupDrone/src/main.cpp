@@ -538,7 +538,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 
 void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 {
-	uint32_t d1, d2;
+	uint32_t d1, d2, carD1, carD2;
 
 	uint16_t centreNo = pt.size();
 
@@ -573,7 +573,8 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			{
 //					// Within distance or
 //					//2 points are very close -> excite new beacon
-					if (switchBeacon(beacon, car) == true)
+					if //((d1 < (DISTANCE_CHECK * DISTANCE_CHECK)) &&
+					(switchBeacon(beacon, car) == false)
 					{
 						// Update beacon Coor
 						beacon = pt[0];
@@ -584,19 +585,39 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			else if (centreNo == 2)
 			{
 				//	Compare beacon DISTANCE_CHECKance with 2 located centres
-				d2 = (beacon.x - pt[1].x) * (beacon.x - pt[1].x) + (beacon.y - pt[1].y) * (beacon.y - pt[1].y);
 
-				if ( d1 > d2 )					//	Swap occurs
+				if (switchBeacon(beacon, car) == false)
 				{
-					if ( d2 < (DISTANCE_CHECK * DISTANCE_CHECK))
+					d2 = (beacon.x - pt[1].x) * (beacon.x - pt[1].x) + (beacon.y - pt[1].y) * (beacon.y - pt[1].y);
+
+					if ( d1 > d2 )					//	Swap occurs
+					{
+						if ( d2 < (DISTANCE_CHECK * DISTANCE_CHECK))
+						{
+							beacon = pt[1];
+							car = pt[0];
+						}
+					}else if ( d1 < (DISTANCE_CHECK * DISTANCE_CHECK))
+					{
+						car = pt[1];
+						beacon = pt[0];
+					}
+				}
+				else					// Update new beacon position
+				{
+					carD1 = (car.x - pt[0].x) * (car.x - pt[0].x) + (car.y - pt[0].y) * (car.y - pt[0].y);
+					carD2 = (car.x - pt[1].x) * (car.x - pt[1].x) + (car.y - pt[1].y) * (car.y - pt[1].y);
+					if ( carD1 > carD2 )					//	Swap occurs
+					{
+						car = pt[1];
+						beacon = pt[0];
+					}
+					else
 					{
 						beacon = pt[1];
 						car = pt[0];
 					}
-				}else if ( d1 < (DISTANCE_CHECK * DISTANCE_CHECK))
-				{
-					car = pt[1];
-					beacon = pt[0];
+
 				}
 
 		//		carAngle = angleTracking(beacon, car);
@@ -607,7 +628,8 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			else if (centreNo > 2)
 			{
 				// Only compare and update beacon Coor with all the ponts
-				multiplePts(pt, beacon, car, 1);
+				if (switchBeacon(beacon, car) == false)
+				{	multiplePts(pt, beacon, car, 1);	}
 			}
 		}		// End Last time only 1 centre is found
 
@@ -617,7 +639,7 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			// This time only 1 centre -> update beacon
 			if (centreNo == 1)
 			{
-					if (switchBeacon(beacon, car) == true)
+					if (switchBeacon(beacon, car) == false)	//((d1 < (DISTANCE_CHECK * DISTANCE_CHECK)) &&
 					{
 						// Update beacon Coor
 						beacon = pt[0];
