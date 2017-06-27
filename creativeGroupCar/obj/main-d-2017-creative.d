@@ -1,4 +1,4 @@
-obj/main-d-2017-inno.o: src/main.cpp src/Coor.h \
+obj/main-d-2017-creative.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg_c.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/system.h \
@@ -29,7 +29,7 @@ obj/main-d-2017-inno.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pwm.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/ftm_pwm.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/config.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/k60/config/2016_inno.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/k60/config/2017_creative.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/dir_motor.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/motor.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/mpu6050.h \

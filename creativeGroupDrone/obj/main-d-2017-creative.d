@@ -1,4 +1,4 @@
-obj/main-d-2017-inno.o: src/main.cpp src/Coor.h \
+obj/main-d-2017-creative.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg_c.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/system.h \
@@ -18,6 +18,12 @@ obj/main-d-2017-inno.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pinout/mk60f15_lqfp144_macros.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pin.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/button.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/k60/ov7725.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/gpio_array.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/k60/ov7725_configurator.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/soft_sccb_master.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/soft_i2c_master.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master_interface.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/k60/uart_device.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/uart.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/k60/jy_mcu_bt_106.h \
@@ -29,13 +35,11 @@ obj/main-d-2017-inno.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pwm.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/ftm_pwm.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/config.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/k60/config/2016_inno.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/dir_motor.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/k60/config/2017_creative.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/alternate_motor.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/motor.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/mpu6050.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master_interface.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/soft_i2c_master.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/mini_lcd.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/battery_meter.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/adc.h \
@@ -49,10 +53,4 @@ obj/main-d-2017-inno.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libutil/misc.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/mini_typewriter.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/joystick.h \
- C:\Users\ChungWa\git\libsccc\inc/libutil/math.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/us_100.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/encoder.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/soft_quad_decoder.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/quad_decoder_interface.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/ftm_quad_decoder.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/dir_encoder.h
+ C:\Users\ChungWa\git\libsccc\inc/libutil/math.h

@@ -22,8 +22,8 @@
 #include <libsc/button.h>
 #include <libbase/k60/gpio.h>
 #include <libbase/k60/pin.h>
-#include <libsc/k60/ov7725.h>
-#include <libsc/k60/ov7725_configurator.h>
+//#include <libsc/k60/ov7725.h>
+//#include <libsc/k60/ov7725_configurator.h>
 #include <libsc/k60/uart_device.h>
 #include <libsc/k60/jy_mcu_bt_106.h>
 #include <libsc/futaba_s3010.h>
@@ -35,6 +35,10 @@
 #include <libsc/lcd_typewriter.h>
 #include <libutil/math.h>
 #include <libsc/button.h>
+#include <libsc/us_100.h>
+#include <libsc/encoder.h>
+#include <libsc/dir_encoder.h>
+
 
 namespace libbase
 {
@@ -100,9 +104,13 @@ uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 const float countConstant = 100000;
 #define PI 3.14159265358979323846
 
-#define SERVO_LEFT_LIMIT 1100
-#define SERVO_CENTRE 824
-#define SERVO_RIGHT_LIMIT 550
+#define SERVO_LEFT_LIMIT 1140
+#define SERVO_CENTRE 850
+#define SERVO_RIGHT_LIMIT 565
+
+#define COUNT_FOR_ONE_METER 57400
+
+#define DISTANCE_FOR_UNLOCK_SERVO 1700
 
 
 
@@ -112,7 +120,8 @@ float carLocate();
 uint32_t distanceSquare(const Coor& a, const Coor& b);
 
 
-k60::Ov7725::Config getCameraConfig();
+//k60::Ov7725::Config getCameraConfig();
+
 UartDevice::Config getBluetoothConfig();
 Mpu6050::Config getMpuConfig();
 St7735r::Config getLcdConfig();
@@ -126,7 +135,7 @@ bool bluetoothListener(const Byte* data, const size_t size);
 
 Led* ledP[4];
 St7735r* lcdP;
-Ov7725* cameraP;
+
 JyMcuBt106* bluetoothP;
 Joystick* joystickP;
 LcdTypewriter* writerP;
@@ -146,10 +155,22 @@ std::vector<int16_t> coorBuffer;
 float servoKp = 15;
 uint16_t servoOutput;
 
+uint32_t timeForUltra = 0;
+float rangeUltra = 0.0;
+
+int32_t distanceForLockServo = 0;
+uint8_t countForLockServo = 0;
+
+bool startTheCarProcess = false;
+
+int32_t eReadingL = 0;
+int32_t eReadingR = 0;
 
 int main(void)
 {
 	System::Init();
+
+
 
 //	//---------------------------------button
 //	Button::Config buttonC;
@@ -197,6 +218,24 @@ int main(void)
 	LcdTypewriter writer(config);
 	writerP = &writer;
 
+	//--------------------------------ultra-sound
+	Gpi::Config gpiC;
+	gpiC.interrupt = Pin::Config::Interrupt::kBoth;
+	gpiC.pin = libbase::k60::Pin::Name::kPtc1;
+	gpiC.isr = [](Gpi *gpi)
+				{
+					if (gpi->Get())
+					{	timeForUltra =  System::TimeIn125us();	}
+					else
+					{	rangeUltra = System::TimeIn125us() - timeForUltra;	}
+				};
+	Gpi ultraEcho(gpiC);
+
+	gpoC.pin = libbase::k60::Pin::Name::kPtc0;
+	gpoC.is_high = false;
+	Gpo ultraTrigger(gpoC);
+
+
 	//--------------------------------bluetooth
 	JyMcuBt106 bt(getBluetoothConfig());
 	bluetoothP = &bt;
@@ -221,19 +260,44 @@ int main(void)
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
 	motorL.SetClockwise(true); // for left motor, true == forward
-	motorL.SetPower(200);
+	motorL.SetPower(150);
 	motorR.SetClockwise(false); // for right motor, false == forward
-	motorR.SetPower(200);
+	motorR.SetPower(150);
+
+//	--------------------------------encoder
+	DirEncoder::Config enc1;
+	enc1.id = 0;
+	DirEncoder encoderL(enc1);
+
+	DirEncoder::Config enc2;
+	enc2.id = 1;
+	DirEncoder encoderR(enc2);
+
 
 	bool irOn = false;
+//	int servoDegreeTemp = 0;
+	bool lockServo = false;
+	char rangeBuffer[50];
+
+
+	while(!startTheCarProcess)
+	{
+		ledP[0]->Switch();
+		ledP[1]->Switch();
+		ledP[2]->Switch();
+		bluetoothP->SendStr("g");
+		System::DelayMs(20);
+	}
+
+	ledP[2]->SetEnable(false);
 
 	uint32_t lastTime = System::Time();
 	while(true)
 	{
+
 		if( ( System::Time() - lastTime ) >= 50)
 		{
 			lastTime = System::Time();
-
 			ledP[0]->Switch();
 
 			//switching ir led
@@ -247,8 +311,54 @@ int main(void)
 				irOn = true;
 			}
 
-//			//calculate car beacon distance
-//			distance = distanceSquare(Beacon, Car[0]);
+			//triggering ultrasonic
+			ultraTrigger.Set();
+			uint32_t startTimeForUltra = System::TimeIn125us();
+			while (System::TimeIn125us() < startTimeForUltra + 2){;}
+			ultraTrigger.Reset();
+
+			//for dodging beacon
+			encoderL.Update();
+			encoderR.Update();
+			eReadingL += encoderL.GetCount();
+			eReadingR += (-encoderR.GetCount());
+			if (rangeUltra*0.02125 < 0.43)
+			{
+				//for filtering
+				countForLockServo++;
+				if(countForLockServo == 3)
+				{
+					lockServo = true;
+					distanceForLockServo = 0;
+					servo.SetDegree(SERVO_LEFT_LIMIT);
+					motorL.SetPower(150);
+					motorR.SetPower(150);
+				}
+			}else
+			{
+				countForLockServo = 0;
+			}
+
+			//calculate the distance passed after locking the servo
+			if(lockServo)
+			{
+				if(-encoderR.GetCount() > 0)
+					distanceForLockServo += (-encoderR.GetCount());
+			}else
+			{
+				motorL.SetPower(150);
+				motorR.SetPower(150);
+			}
+
+			//unlock the servo
+			if(distanceForLockServo > DISTANCE_FOR_UNLOCK_SERVO)
+			{
+				lockServo = false;
+				servo.SetDegree(SERVO_CENTRE);
+				distanceForLockServo = 0;
+				motorL.SetPower(150);
+				motorR.SetPower(150);
+			}
 
 			//calculate car beacon angle with angle in image and car drifted angle
 			//update car drifted angle from mpu
@@ -352,13 +462,16 @@ int main(void)
 				}
 			}
 
-			//control servo and motor
-			servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKp);
-			if(servoOutput > SERVO_LEFT_LIMIT)
-				servoOutput = SERVO_LEFT_LIMIT;
-			else if(servoOutput < SERVO_RIGHT_LIMIT)
-				servoOutput = SERVO_RIGHT_LIMIT;
-			servo.SetDegree(servoOutput);
+			if (lockServo == false)
+			{
+				//control servo and motor
+				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKp);
+				if(servoOutput > SERVO_LEFT_LIMIT)
+					servoOutput = SERVO_LEFT_LIMIT;
+				else if(servoOutput < SERVO_RIGHT_LIMIT)
+					servoOutput = SERVO_RIGHT_LIMIT;
+				servo.SetDegree(servoOutput);
+			}
 
 		}//end if for checking time
 	}//end while loop
@@ -402,7 +515,7 @@ float carLocate()
 uint32_t distanceSquare(const Coor& a, const Coor& b)
 {	return (a.x -b.x) *(a.x -b.x) + (a.y -b.y) *(a.y -b.y);	}		// (x2-x1)^2 + (y2-y1)^2
 
-
+/*
 k60::Ov7725::Config getCameraConfig()
 {
 	k60::Ov7725::Config c;
@@ -412,7 +525,7 @@ k60::Ov7725::Config getCameraConfig()
 	c.fps = k60::Ov7725Configurator::Config::Fps::kHigh;
 	return c;
 }
-
+*/
 UartDevice::Config getBluetoothConfig()
 {
 	UartDevice::Config c;
@@ -507,6 +620,12 @@ bool bluetoothListener(const Byte* data, const size_t size)
 			messageFromDrone += *data;
 		}
 	}
+
+	if(*data == 'g')
+	{
+		startTheCarProcess = true;
+	}
+
 
 	return true;
 }

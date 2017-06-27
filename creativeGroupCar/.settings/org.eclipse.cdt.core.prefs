@@ -15,7 +15,7 @@ environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_B
 environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_BUILD/operation=append
 environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_BUILD/value=DEBUG
 environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_CONFIG/delimiter=;
-environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_CONFIG/operation=append
-environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_CONFIG/value=2017_INNO
+environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_CONFIG/operation=replace
+environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/SCCC_CONFIG/value=2017_CREATIVE
 environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/append=true
 environment/project/cdt.managedbuild.config.gnu.cross.exe.debug.699363504/appendContributed=true
