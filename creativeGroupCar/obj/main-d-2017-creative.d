@@ -1,10 +1,6 @@
-obj/main-d-2017-creative.o: src/main.cpp src/Coor.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg_c.h \
+obj/main-d-2017-creative.o: src/main.cpp src/Coor.h src/PID.h src/Sr04.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/system.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/timer.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/led.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/helper.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/gpio.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/dma.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/dma_mux.h \
@@ -17,6 +13,10 @@ obj/main-d-2017-creative.o: src/main.cpp src/Coor.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pinout_macros.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pinout/mk60f15_lqfp144_macros.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pin.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg_c.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/led.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/helper.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/button.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/k60/uart_device.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/uart.h \

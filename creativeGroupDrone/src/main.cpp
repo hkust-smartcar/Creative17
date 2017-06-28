@@ -165,9 +165,6 @@ int main(void)
 
 	cameraP->Start();
 
-	//--------------------------------MPU
-//	Mpu9250 mpu;
-
 	//--------------------------------JOYSTICK
 	Joystick js(getJoystickConfig(0));
 

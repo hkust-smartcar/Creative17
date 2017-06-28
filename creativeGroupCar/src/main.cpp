@@ -16,6 +16,8 @@
 #include <queue>
 #include <cstdint>
 #include "Coor.h"
+#include "PID.h"
+#include "Sr04.h"
 #include <libbase/k60/mcg.h>
 #include <libsc/system.h>
 #include <libsc/led.h>
@@ -128,7 +130,7 @@ St7735r::Config getLcdConfig();
 Joystick::Config getJoystickConfig(uint8_t _id);
 
 //assume receive centre data in the following format
-//startXXX,XXX,XXX,XXX,end!
+//sXXX,XXX,XXX,XXX,e the first Coor is beacon
 bool bluetoothListener(const Byte* data, const size_t size);
 
 
@@ -155,16 +157,24 @@ std::vector<int16_t> coorBuffer;
 float servoKp = 15;
 uint16_t servoOutput;
 
-uint32_t timeForUltra = 0;
-float rangeUltra = 0.0;
+uint32_t timeForUltraL = 0;
+float rangeForUltraL = 0.0;
+uint32_t timeForUltraR = 0;
+float rangeForUltraR = 0.0;
 
 int32_t distanceForLockServo = 0;
-uint8_t countForLockServo = 0;
+uint8_t countForLockServoL = 0;
+uint8_t countForLockServoR = 0;
 
 bool startTheCarProcess = false;
 
 int32_t eReadingL = 0;
 int32_t eReadingR = 0;
+
+PID motorLControl;
+PID motorRControl;
+
+bool programEnd = false;
 
 int main(void)
 {
@@ -219,21 +229,50 @@ int main(void)
 	writerP = &writer;
 
 	//--------------------------------ultra-sound
-	Gpi::Config gpiC;
-	gpiC.interrupt = Pin::Config::Interrupt::kBoth;
-	gpiC.pin = libbase::k60::Pin::Name::kPtc1;
-	gpiC.isr = [](Gpi *gpi)
-				{
-					if (gpi->Get())
-					{	timeForUltra =  System::TimeIn125us();	}
-					else
-					{	rangeUltra = System::TimeIn125us() - timeForUltra;	}
-				};
-	Gpi ultraEcho(gpiC);
+//	Sr04::Config ultraC;
+//	ultraC.echo = libbase::k60::Pin::Name::kPtb23;
+//	ultraC.trigger = libbase::k60::Pin::Name::kPtb22;
+//	Sr04 ultraR(ultraC);
+//	ultraC.echo = libbase::k60::Pin::Name::kPtc1;
+//	ultraC.trigger = libbase::k60::Pin::Name::kPtc0;
+//	Sr04 ultraL(ultraC);
 
-	gpoC.pin = libbase::k60::Pin::Name::kPtc0;
-	gpoC.is_high = false;
-	Gpo ultraTrigger(gpoC);
+	Gpi::Config echoC;
+	echoC.pin = libbase::k60::Pin::Name::kPtb23;
+	echoC.interrupt = Pin::Config::Interrupt::kBoth;
+	echoC.isr = [] (Gpi* gpi)
+	{
+		if (gpi->Get())
+		{ timeForUltraL =  System::TimeIn125us(); }
+		else
+		{ rangeForUltraL = System::TimeIn125us() - timeForUltraL; }
+	};
+
+	Gpi ultraEchoL(echoC);
+
+	echoC.pin = libbase::k60::Pin::Name::kPtc1;
+	echoC.interrupt = Pin::Config::Interrupt::kBoth;
+	echoC.isr = [] (Gpi* gpi)
+	{
+		if (gpi->Get())
+		{ timeForUltraR =  System::TimeIn125us(); }
+		else
+		{ rangeForUltraR = System::TimeIn125us() - timeForUltraR; }
+	};
+
+	Gpi ultraEchoR(echoC);
+
+	Gpo::Config triggerC;
+	triggerC.pin = libbase::k60::Pin::Name::kPtb22;
+	triggerC.is_high = false;
+
+	Gpo ultraTriggerL(triggerC);
+
+	triggerC.pin = libbase::k60::Pin::Name::kPtc0;
+	triggerC.is_high = false;
+
+	Gpo ultraTriggerR(triggerC);
+
 
 
 	//--------------------------------bluetooth
@@ -260,9 +299,9 @@ int main(void)
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
 	motorL.SetClockwise(true); // for left motor, true == forward
-	motorL.SetPower(150);
+//	motorL.SetPower(150);
 	motorR.SetClockwise(false); // for right motor, false == forward
-	motorR.SetPower(150);
+//	motorR.SetPower(150);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
@@ -311,22 +350,42 @@ int main(void)
 				irOn = true;
 			}
 
+			char rangeBuffer[50];
+			sprintf(rangeBuffer, "range L: %f\t range R: %f\n", rangeForUltraL * 0.02125, rangeForUltraR * 0.02125);
+			bluetoothP->SendStr(rangeBuffer);
+
 			//triggering ultrasonic
-			ultraTrigger.Set();
+			ultraTriggerR.Set();
+			ultraTriggerL.Set();
 			uint32_t startTimeForUltra = System::TimeIn125us();
-			while (System::TimeIn125us() < startTimeForUltra + 2){;}
-			ultraTrigger.Reset();
+			while(System::TimeIn125us() < startTimeForUltra + 2){;}
+			ultraTriggerR.Reset();
+			ultraTriggerL.Reset();
 
 			//for dodging beacon
 			encoderL.Update();
 			encoderR.Update();
 			eReadingL += encoderL.GetCount();
 			eReadingR += (-encoderR.GetCount());
-			if (rangeUltra*0.02125 < 0.43)
+
+			//obstacle detection
+			if (rangeForUltraR * 0.02125 < 0.45)
 			{
 				//for filtering
-				countForLockServo++;
-				if(countForLockServo == 3)
+				countForLockServoR++;
+				if(countForLockServoR == 3)
+				{
+					lockServo = true;
+					distanceForLockServo = 0;
+					servo.SetDegree(SERVO_RIGHT_LIMIT);
+					motorL.SetPower(150);
+					motorR.SetPower(150);
+				}
+			}else if(rangeForUltraL * 0.02125 < 0.45)
+			{
+				//for filtering
+				countForLockServoL++;
+				if(countForLockServoL == 3)
 				{
 					lockServo = true;
 					distanceForLockServo = 0;
@@ -336,16 +395,26 @@ int main(void)
 				}
 			}else
 			{
-				countForLockServo = 0;
+				countForLockServoR = 0;
+				countForLockServoL = 0;
 			}
 
 			//calculate the distance passed after locking the servo
 			if(lockServo)
 			{
-				if(-encoderR.GetCount() > 0)
-					distanceForLockServo += (-encoderR.GetCount());
+				//determine the locked direction
+				if(servo.GetDegree() == SERVO_RIGHT_LIMIT)
+				{
+					if(encoderL.GetCount() > 0)
+						distanceForLockServo += (encoderL.GetCount());
+				}else
+				{
+					if(-encoderR.GetCount() > 0)
+						distanceForLockServo += (-encoderR.GetCount());
+				}
 			}else
 			{
+				//maybe go faster than lock servo
 				motorL.SetPower(150);
 				motorR.SetPower(150);
 			}
@@ -356,6 +425,8 @@ int main(void)
 				lockServo = false;
 				servo.SetDegree(SERVO_CENTRE);
 				distanceForLockServo = 0;
+
+				//can set a faster speed
 				motorL.SetPower(150);
 				motorR.SetPower(150);
 			}
@@ -460,6 +531,11 @@ int main(void)
 						//determine what to do later
 					}
 				}
+			}else
+			{
+				//no information of how to move
+				motorL.SetPower(0);
+				motorR.SetPower(0);
 			}
 
 			if (lockServo == false)
@@ -473,8 +549,14 @@ int main(void)
 				servo.SetDegree(servoOutput);
 			}
 
+			bluetoothP->SendStr("program starts here.\n");
+			if(programEnd)
+				break;
+
 		}//end if for checking time
 	}//end while loop
+
+	bluetoothP->SendStr("the program end here.\n");
 	return 0;
 }
 
@@ -529,7 +611,7 @@ k60::Ov7725::Config getCameraConfig()
 UartDevice::Config getBluetoothConfig()
 {
 	UartDevice::Config c;
-	c.id = 0;
+	c.id = 1;
 	c.baud_rate = Uart::Config::BaudRate::k115200;
 //	c.rx_irq_threshold = 1;
 //	c.tx_buf_size = ;
@@ -624,6 +706,9 @@ bool bluetoothListener(const Byte* data, const size_t size)
 	if(*data == 'g')
 	{
 		startTheCarProcess = true;
+	}else if(*data == '.')
+	{
+		programEnd = true;
 	}
 
 
