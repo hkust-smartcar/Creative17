@@ -55,11 +55,11 @@ using namespace libbase::k60;
 using namespace libsc::k60;
 using namespace libutil;
 
-//
+//--------------------------------------------------------------
 
 #define CAM_W 80
 #define CAM_H 60
-uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
+uint8_t MEAN_FILTER_WINDOW_SIZE = 5;	//window size should be odd
 
 //#define ENABLE_LCD
 
@@ -67,20 +67,17 @@ uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
 
 void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8]);
-
 void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H]);
-
 void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H]);
 
 void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H]);
 
 void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car);
-
 void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly);
+bool switchBeacon(Coor bn, Coor Cr);
+uint32_t distanceSquare(const Coor& a, const Coor& b);
 
 void sendSignal(const Coor& b, const Coor& c);
-
-bool switchBeacon(Coor bn, Coor Cr);
 
 
 k60::Ov7725::Config getCameraConfig();
@@ -106,12 +103,13 @@ uint8_t prevCentreCount = 0;
 
 Coor beacon_old;
 
+bool startTheDroneProcess = false;
+
 
 ///////////////////////////////////////////////////////This is for the drone
 int main(void)
 {
 	System::Init();
-
 
 	//---------------------------------led
 	Led::Config c;
@@ -168,6 +166,11 @@ int main(void)
 
 	//--------------------------------JOYSTICK
 	Joystick js(getJoystickConfig(0));
+
+	while(!startTheDroneProcess)
+	{
+		System::DelayMs(5);
+	}
 
 	uint32_t lastTime = System::Time();
 	while(true)
@@ -257,6 +260,8 @@ int main(void)
 	return 0;
 }
 
+
+//Function--------------------------------------------------------------
 void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8])
 {
 	for(uint16_t i = 0; i < CAM_H; i++)
@@ -390,6 +395,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 			{
 				if(distriX[j])
 				{
+					//a white point found
 					if(in[j][i] == 0)
 					{
 						queue<Coor> qForExpand;
@@ -528,7 +534,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 						}
 						Coor tempCoor = Coor(cenX/base, cenY/base);
 						cen.push_back(tempCoor);
-					}
+					}//end of while loop for expanding the region
 				}
 			}
 		}
@@ -539,7 +545,6 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 {
 	uint32_t d1, d2, carD1, carD2;
-
 	uint16_t centreNo = pt.size();
 
 	// 1st Run
@@ -552,8 +557,6 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			beacon_old = beacon = pt[0];
 			runFlag = 1;
 		}
-			//		else if (centreCount > 1)
-			//		{	centreStorage = centre;	}
 	}
 	// 2nd Run/ beacon is already found
 	else if (runFlag == 1)
@@ -561,7 +564,8 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 		if (centreNo > 0)
 		{
 			// Calculate beacon & new pt dist
-			d1 = (beacon.x - pt[0].x) * (beacon.x - pt[0].x) + (beacon.y - pt[0].y) * (beacon.y - pt[0].y);
+			d1 = distanceSquare(beacon,pt[0]);
+		//--	d1 = (beacon.x - pt[0].x) * (beacon.x - pt[0].x) + (beacon.y - pt[0].y) * (beacon.y - pt[0].y);
 			beacon_old = beacon;
 		}
 
@@ -571,24 +575,19 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			//	This time also only 1 centre is found
 			if (centreNo == 1)
 			{
-//					// Within distance or
-//					//2 points are very close -> excite new beacon
-					if //((d1 < (DISTANCE_CHECK * DISTANCE_CHECK)) &&
-					(switchBeacon(beacon, car) == false)
-					{
+					if (switchBeacon(beacon, car) == false)
 						// Update beacon Coor
-						beacon = pt[0];
-					}
+					{	beacon = pt[0];		}
 			}
 
 			// This time 2 centres are located
 			else if (centreNo == 2)
 			{
 				//	Compare beacon DISTANCE_CHECKance with 2 located centres
-
 				if (switchBeacon(beacon, car) == false)
 				{
-					d2 = (beacon.x - pt[1].x) * (beacon.x - pt[1].x) + (beacon.y - pt[1].y) * (beacon.y - pt[1].y);
+					d2 = distanceSquare(beacon,pt[1]);
+				//--	d2 = (beacon.x - pt[1].x) * (beacon.x - pt[1].x) + (beacon.y - pt[1].y) * (beacon.y - pt[1].y);
 
 					if ( d1 > d2 )					//	Swap occurs
 					{
@@ -605,8 +604,10 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 				}
 				else					// Update new beacon position
 				{
-					carD1 = (car.x - pt[0].x) * (car.x - pt[0].x) + (car.y - pt[0].y) * (car.y - pt[0].y);
-					carD2 = (car.x - pt[1].x) * (car.x - pt[1].x) + (car.y - pt[1].y) * (car.y - pt[1].y);
+					carD1 = distanceSquare(car,pt[0]);
+					carD2 = distanceSquare(car,pt[1]);
+				//--	carD1 = (car.x - pt[0].x) * (car.x - pt[0].x) + (car.y - pt[0].y) * (car.y - pt[0].y);
+				//--	carD2 = (car.x - pt[1].x) * (car.x - pt[1].x) + (car.y - pt[1].y) * (car.y - pt[1].y);
 					if ( carD1 > carD2 )					//	Swap occurs
 					{
 						car = pt[1];
@@ -617,11 +618,7 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 						beacon = pt[1];
 						car = pt[0];
 					}
-
 				}
-
-		//		carAngle = angleTracking(beacon, car);
-		//		carTurnAngle = carAngle + carTurnAngle ;
 			}
 
 			// This time >2 centres
@@ -640,16 +637,12 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 			if (centreNo == 1)
 			{
 					if (switchBeacon(beacon, car) == false)	//((d1 < (DISTANCE_CHECK * DISTANCE_CHECK)) &&
-					{
 						// Update beacon Coor
-						beacon = pt[0];
-					}
+					{	beacon = pt[0];	}
 			}
 			// More than 1 pts -> Update both beacon and car
 			else if (centreNo > 1)
-			{
-				multiplePts(pt, beacon, car, 0);
-			}
+			{	multiplePts(pt, beacon, car, 0);	}
 		}		// End Last time 2 centres are found
 
 		//	Multiple pt -> 2 centres
@@ -659,12 +652,6 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
 		//	Ignored case: No centre is found
 		else if (prevCentreCount == 0)
 		{	prevCentreCount = 1;	}
-
-/*		if ((centreNo > 0 ) && (switchBeacon(beacon, car) == false))
-		{
-			droneDriftAngle = angleTracking(beacon_old, beacon) -  droneDriftAngle;
-		}
-*/
 	}		// end Run flag = 1
 }
 
@@ -677,7 +664,8 @@ void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly)
 	//	Compare beacon Coor with all pts
 	for (int i = 0; i < (cCount-1); i++)
 	{
-		tempResult = (Beacon.x - pts[i].x)*(Beacon.x - pts[i].x) + (Beacon.y - pts[i].y) * (Beacon.y - pts[i].y);
+		tempResult = distanceSquare(Beacon,pts[i]);
+	//--	tempResult = (Beacon.x - pts[i].x)*(Beacon.x - pts[i].x) + (Beacon.y - pts[i].y) * (Beacon.y - pts[i].y);
 		if (tempResult < smallestD)
 		{
 			smallestD = tempResult;
@@ -699,7 +687,8 @@ void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly)
 
 		for (int j = 0; j < (cCount-1); j++)
 		{
-			tempResult = (Car.x - pts[j].x)*(Car.x - pts[j].x) + (Car.y - pts[j].y) * (Car.y - pts[j].y);
+			tempResult = distanceSquare(Car,pts[j]);
+		//--	tempResult = (Car.x - pts[j].x)*(Car.x - pts[j].x) + (Car.y - pts[j].y) * (Car.y - pts[j].y);
 			if (tempResult < smallestD)
 			{
 				smallestD = tempResult;
@@ -716,7 +705,7 @@ void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly)
 
 bool switchBeacon(Coor bn, Coor Cr)
 {
-	if (((Cr.x- bn.x) * (Cr.x- bn.x) + (Cr.y- bn.y) * (Cr.y- bn.y)) < (6 * 6))
+	if (((Cr.x- bn.x) * (Cr.x- bn.x) + (Cr.y- bn.y) * (Cr.y- bn.y)) < (13 * 13))
 	{	return true; }
 	else
 	{ return false;	}
@@ -826,6 +815,11 @@ void sendSignal(const Coor& b, const Coor& c)
 	bluetoothP->SendStr(tempMessage);
 }
 
+uint32_t distanceSquare(const Coor& a, const Coor& b)
+{	return (a.x -b.x) *(a.x -b.x) + (a.y -b.y) *(a.y -b.y);	}		// (x2-x1)^2 + (y2-y1)^2
+
+
+// Config func.--------------------------------------------------------------
 k60::Ov7725::Config getCameraConfig()
 {
 	k60::Ov7725::Config c;
@@ -848,7 +842,11 @@ UartDevice::Config getBluetoothConfig()
 
 bool bluetoothListener(const Byte* data, const size_t size)
 {
-
+	if(*data == 'g')
+	{
+		startTheDroneProcess = true;
+		bluetoothP->SendStr("g");
+	}
 	return true;
 }
 
