@@ -131,14 +131,15 @@ Joystick::Config getJoystickConfig(uint8_t _id);
 
 //assume receive centre data in the following format
 //sXXX,XXX,XXX,XXX,e the first Coor is beacon
-bool bluetoothListener(const Byte* data, const size_t size);
+bool bluetoothListenerOne(const Byte* data, const size_t size);
+bool bluetoothListenerTwo(const Byte* data, const size_t size);
 
 
 
 Led* ledP[4];
 St7735r* lcdP;
 
-JyMcuBt106* bluetoothP;
+JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
 Mpu6050* mpuP;
@@ -276,8 +277,20 @@ int main(void)
 
 
 	//--------------------------------bluetooth
-	JyMcuBt106 bt(getBluetoothConfig());
-	bluetoothP = &bt;
+	UartDevice::Config bluetoothC;
+	bluetoothC.id = 0;
+	bluetoothC.baud_rate = Uart::Config::BaudRate::k115200;
+//	c.rx_irq_threshold = 1;
+//	c.tx_buf_size = ;
+	bluetoothC.rx_isr = bluetoothListenerOne;
+	JyMcuBt106 bt1(bluetoothC);
+	bluetoothP[0] = &bt1;
+
+	bluetoothC.id = 1;
+	bluetoothC.rx_isr = bluetoothListenerTwo;
+	JyMcuBt106 bt2(bluetoothC);
+	bluetoothP[1] = &bt2;
+
 
 	//--------------------------------mpu
 	Mpu6050 mpu(getMpuConfig());
@@ -324,7 +337,7 @@ int main(void)
 		ledP[0]->Switch();
 		ledP[1]->Switch();
 		ledP[2]->Switch();
-		bluetoothP->SendStr("g");
+		bluetoothP[0]->SendStr("g");
 		System::DelayMs(20);
 	}
 
@@ -339,6 +352,14 @@ int main(void)
 			lastTime = System::Time();
 			ledP[0]->Switch();
 
+			//triggering ultrasonic
+			ultraTriggerR.Set();
+			ultraTriggerL.Set();
+			uint32_t startTimeForUltra = System::TimeIn125us();
+			while(System::TimeIn125us() < startTimeForUltra + 2){;}
+			ultraTriggerR.Reset();
+			ultraTriggerL.Reset();
+
 			//switching ir led
 			if(irOn)
 			{
@@ -350,23 +371,15 @@ int main(void)
 				irOn = true;
 			}
 
-			char rangeBuffer[50];
-			sprintf(rangeBuffer, "range L: %f\t range R: %f\n", rangeForUltraL * 0.02125, rangeForUltraR * 0.02125);
-			bluetoothP->SendStr(rangeBuffer);
-
-			//triggering ultrasonic
-			ultraTriggerR.Set();
-			ultraTriggerL.Set();
-			uint32_t startTimeForUltra = System::TimeIn125us();
-			while(System::TimeIn125us() < startTimeForUltra + 2){;}
-			ultraTriggerR.Reset();
-			ultraTriggerL.Reset();
+//			char rangeBuffer[50];
+//			sprintf(rangeBuffer, "range L: %f\t range R: %f\n", rangeForUltraL * 0.02125, rangeForUltraR * 0.02125);
+//			bluetoothP->SendStr(rangeBuffer);
 
 			//for dodging beacon
 			encoderL.Update();
 			encoderR.Update();
-			eReadingL += encoderL.GetCount();
-			eReadingR += (-encoderR.GetCount());
+//			eReadingL += encoderL.GetCount();
+//			eReadingR += (-encoderR.GetCount());
 
 			//obstacle detection
 			if (rangeForUltraR * 0.02125 < 0.45)
@@ -522,9 +535,9 @@ int main(void)
 						{
 							carAngleError = 360 + carHeadingAngle;
 						}
-//						char buffer[100];
-//						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
-//						bluetoothP->SendStr(buffer);
+						char buffer[100];
+						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
+						bluetoothP[1]->SendStr(buffer);
 					}else
 					{
 						//distance == 0
@@ -549,14 +562,9 @@ int main(void)
 				servo.SetDegree(servoOutput);
 			}
 
-			bluetoothP->SendStr("program starts here.\n");
-			if(programEnd)
-				break;
-
 		}//end if for checking time
 	}//end while loop
 
-	bluetoothP->SendStr("the program end here.\n");
 	return 0;
 }
 
@@ -608,16 +616,16 @@ k60::Ov7725::Config getCameraConfig()
 	return c;
 }
 */
-UartDevice::Config getBluetoothConfig()
-{
-	UartDevice::Config c;
-	c.id = 1;
-	c.baud_rate = Uart::Config::BaudRate::k115200;
-//	c.rx_irq_threshold = 1;
-//	c.tx_buf_size = ;
-	c.rx_isr = bluetoothListener;
-	return c;
-}
+//UartDevice::Config getBluetoothConfig()
+//{
+//	UartDevice::Config c;
+//	c.id = 1;
+//	c.baud_rate = Uart::Config::BaudRate::k115200;
+////	c.rx_irq_threshold = 1;
+////	c.tx_buf_size = ;
+//	c.rx_isr = bluetoothListener;
+//	return c;
+//}
 
 St7735r::Config getLcdConfig()
 {
@@ -668,7 +676,7 @@ Mpu6050::Config getMpuConfig()
 	return c;
 }
 
-bool bluetoothListener(const Byte* data, const size_t size)
+bool bluetoothListenerOne(const Byte* data, const size_t size)
 {
 	ledP[3]->Switch();
 	if( (*data <= '9' && *data >= '0') || *data == ',' || *data == 's' || *data == 'e')
@@ -706,11 +714,13 @@ bool bluetoothListener(const Byte* data, const size_t size)
 	if(*data == 'g')
 	{
 		startTheCarProcess = true;
-	}else if(*data == '.')
-	{
-		programEnd = true;
 	}
-
 
 	return true;
 }
+
+bool bluetoothListenerTwo(const Byte* data, const size_t size)
+{
+	return true;
+}
+
