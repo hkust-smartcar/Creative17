@@ -152,7 +152,7 @@ int main(void)
 	bool boolImage[CAM_W][CAM_H];
 	bool boolImageFiltered[CAM_W][CAM_H];
 	vector<Coor> centre;
-	vector<Coor> preCentre;		//assume size of two
+//	vector<Coor> preCentre;		//assume size of two
 	Coor beacon;
 	Coor car;
 
@@ -160,8 +160,8 @@ int main(void)
 	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
 	for(int i = 0; i < CAM_W; i++)
 		memset(boolImage + i, 0, CAM_H);
-	preCentre.push_back(Coor());
-	preCentre.push_back(Coor());
+//	preCentre.push_back(Coor());
+//	preCentre.push_back(Coor());
 
 	cameraP->Start();
 
@@ -172,6 +172,9 @@ int main(void)
 	{
 		System::DelayMs(5);
 	}
+
+	//spare for next reset
+	startTheDroneProcess = false;
 
 	uint32_t lastTime = System::Time();
 	while(true)
@@ -235,15 +238,24 @@ int main(void)
 			//update preCentre by using data in centre
 			determinePts(centre, beacon, car);
 
+
+			//signal from the car to reset the data in the drone
+			if(startTheDroneProcess)
+			{
+				beacon = Coor();
+				car = Coor();
+				startTheDroneProcess = false;
+			}
+
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
 			sendSignal(beacon, car);
 
 
 #ifdef ENABLE_LCD
-			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 2, 2));
+			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
 			lcdP->FillColor(St7735r::kBlue);
-			lcdP->SetRegion(Lcd::Rect(3 + car.x, 2 + car.y, 2, 2));
-			lcdP->FillColor(St7735r::kGreen);
+			lcdP->SetRegion(Lcd::Rect(3 + car.x, 2 + car.y, 3, 3));
+			lcdP->FillColor(St7735r::kRed);
 
 			lcdP->SetRegion(Lcd::Rect(0, 120, 128, 50));
 			sprintf(buffer, "beacon B %d %d", beacon.x, beacon.y);
@@ -255,6 +267,7 @@ int main(void)
 #endif
 
 			centre.clear();
+
 
 		}//end if for checking time
 	}//end while loop
@@ -718,7 +731,7 @@ void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly)
 
 bool switchBeacon(Coor bn, Coor Cr)
 {
-	if (((Cr.x- bn.x) * (Cr.x- bn.x) + (Cr.y- bn.y) * (Cr.y- bn.y)) < (13 * 13))
+	if (((Cr.x- bn.x) * (Cr.x- bn.x) + (Cr.y- bn.y) * (Cr.y- bn.y)) < (8 * 8))
 	{	return true; }
 	else
 	{ return false;	}
