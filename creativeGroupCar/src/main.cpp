@@ -112,7 +112,7 @@ const float countConstant = 100000;
 
 #define COUNT_FOR_ONE_METER 57400
 
-#define DISTANCE_FOR_UNLOCK_SERVO 1700
+#define DISTANCE_FOR_UNLOCK_SERVO 1700 / 2
 
 
 
@@ -378,8 +378,8 @@ int main(void)
 			//for dodging beacon
 			encoderL.Update();
 			encoderR.Update();
-//			eReadingL += encoderL.GetCount();
-//			eReadingR += (-encoderR.GetCount());
+			eReadingL = encoderL.GetCount();
+			eReadingR = (-encoderR.GetCount());
 
 			//obstacle detection
 			if (rangeForUltraR * 0.02125 < 0.45)

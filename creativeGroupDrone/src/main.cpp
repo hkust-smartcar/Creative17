@@ -82,6 +82,8 @@ void sendSignal(const Coor& b, const Coor& c);
 
 bool switchBeacon(Coor bn, Coor Cr);
 
+uint32_t squaredDistance(const Coor& b, const Coor& c);
+
 
 k60::Ov7725::Config getCameraConfig();
 UartDevice::Config getBluetoothConfig();
@@ -107,6 +109,9 @@ uint8_t prevCentreCount = 0;
 Coor beacon_old;
 
 bool startTheDroneProcess = false;
+
+bool fakeBeacon = false;
+bool beaconCarVeryClose = false;
 
 
 ///////////////////////////////////////////////////////This is for the drone
@@ -168,13 +173,13 @@ int main(void)
 	//--------------------------------JOYSTICK
 	Joystick js(getJoystickConfig(0));
 
-	while(!startTheDroneProcess)
-	{
-		System::DelayMs(5);
-	}
-
-	//spare for next reset
-	startTheDroneProcess = false;
+//	while(!startTheDroneProcess)
+//	{
+//		System::DelayMs(5);
+//	}
+//
+//	//spare for next reset
+//	startTheDroneProcess = false;
 
 	uint32_t lastTime = System::Time();
 	while(true)
@@ -235,17 +240,108 @@ int main(void)
 				}
 			}
 
-			//update preCentre by using data in centre
-			determinePts(centre, beacon, car);
+//			//update preCentre by using data in centre
+//			determinePts(centre, beacon, car);
 
-
-			//signal from the car to reset the data in the drone
-			if(startTheDroneProcess)
+#define FAR_DISTANCE 10
+			if(beaconCarVeryClose == true && centre.size() == 0)
 			{
-				beacon = Coor();
-				car = Coor();
-				startTheDroneProcess = false;
+				//STEP 5: the car got to the beacon but the new beacon is too far away such that it is not in the frame
+				beaconCarVeryClose = false;
+				car = beacon;
+				beacon = Coor(CAM_W / 2, CAM_H / 2);
+				fakeBeacon = true;
+			}else if(beaconCarVeryClose == true && centre.size() == 1)
+			{
+
+				//STEP 5: the car got to the beacon and the new beacon is near by
+				if(squaredDistance(beacon, centre[0]) >= FAR_DISTANCE * FAR_DISTANCE)
+				{
+					beaconCarVeryClose = false;
+					car = beacon;
+					beacon = centre[0];
+				}
+			}else if(beaconCarVeryClose == true && centre.size() == 2)
+			{
+				//don't know what to do
+
+				// //the distane become large again. Need to recalculate the angle so update the coordinate
+				// if(squaredDistance(centre[0], centre[1]) > FAR_DISTANCE * FAR_DISTANCE)
+				// {
+				// 	//choose the closest point to the beacon to be the new beacon
+				// 	if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
+				// 	{
+				// 		beacon = centre[0];
+				// 		car = centre[1];
+				// 	}else
+				// 	{
+				// 		beacon = centre[1];
+				// 		car = centre[0];
+				// 	}
+				// 	beaconCarVeryClose = false;
+				// }
+
+			}else if(centre.size() == 1)
+			{
+				//STEP 1:
+				//assume the starting point is car if beacon is invalid
+				if(beacon == Coor())
+				{
+					car = centre.front();
+					beacon = Coor(CAM_W / 2, CAM_H / 2);
+					fakeBeacon = true;
+				}else if(fakeBeacon == false)
+				{
+					beacon = centre.front();
+				}else if(squaredDistance(beacon, car) >= FAR_DISTANCE * FAR_DISTANCE) //STEP 4: the car approches the beacon
+				{
+					beacon = centre.front();
+					//don't know any information about the car
+					//hold that first
+					beaconCarVeryClose = false;
+				}else //else do not update the beacon coordinate to avoid blinking
+				{
+					beaconCarVeryClose = true;
+				}
+			}else if(centre.size() == 2)
+			{
+				//STEP 2:
+				if(fakeBeacon == true)
+				{
+					if(squaredDistance(car, centre[0]) < squaredDistance(car, centre[1]))
+					{
+						car = centre[0];
+						beacon = centre[1];
+					}else
+					{
+						car = centre[1];
+						beacon = centre[0];
+					}
+					fakeBeacon = false;
+				}else //STEP 3: update the beacon first
+				{
+					//choose the closest point to the beacon to be the new beacon
+					if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
+					{
+						beacon = centre[0];
+						car = centre[1];
+					}else
+					{
+						beacon = centre[1];
+						car = centre[0];
+					}
+				}
+
 			}
+
+
+			// //signal from the car to reset the data in the drone
+			// if(startTheDroneProcess)
+			// {
+			// 	beacon = Coor();
+			// 	car = Coor();
+			// 	startTheDroneProcess = false;
+			// }
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
 			sendSignal(beacon, car);
@@ -370,32 +466,32 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 			if(in[j][i] == 0)
 				distriY[i] += 1;
 
-#ifdef ENABLE_LCD
-	for(uint8_t i = 0; i < CAM_W; i++)
-	{
-		lcdP->SetRegion(Lcd::Rect(3 + i, 2 + CAM_H, 1, distriX[i]));
-		lcdP->FillColor(Lcd::kYellow);
-	}
-
-	for(uint8_t i = 0; i < CAM_H; i++)
-	{
-		lcdP->SetRegion(Lcd::Rect(3 + CAM_W, 2 + i, distriY[i], 1));
-		lcdP->FillColor(Lcd::kYellow);
-	}
-
-
-	for(uint8_t i = 0; i < CAM_W; i++)
-	{
-		lcdP->SetRegion(Lcd::Rect(3 + i, 2 + CAM_H, 1, distriX[i]));
-		lcdP->FillColor(Lcd::kBlack);
-	}
-
-	for(uint8_t i = 0; i < CAM_H; i++)
-	{
-		lcdP->SetRegion(Lcd::Rect(3 + CAM_W, 2 + i, distriY[i], 1));
-		lcdP->FillColor(Lcd::kBlack);
-	}
-#endif
+//#ifdef ENABLE_LCD
+//	for(uint8_t i = 0; i < CAM_W; i++)
+//	{
+//		lcdP->SetRegion(Lcd::Rect(3 + i, 2 + CAM_H, 1, distriX[i]));
+//		lcdP->FillColor(Lcd::kYellow);
+//	}
+//
+//	for(uint8_t i = 0; i < CAM_H; i++)
+//	{
+//		lcdP->SetRegion(Lcd::Rect(3 + CAM_W, 2 + i, distriY[i], 1));
+//		lcdP->FillColor(Lcd::kYellow);
+//	}
+//
+//
+//	for(uint8_t i = 0; i < CAM_W; i++)
+//	{
+//		lcdP->SetRegion(Lcd::Rect(3 + i, 2 + CAM_H, 1, distriX[i]));
+//		lcdP->FillColor(Lcd::kBlack);
+//	}
+//
+//	for(uint8_t i = 0; i < CAM_H; i++)
+//	{
+//		lcdP->SetRegion(Lcd::Rect(3 + CAM_W, 2 + i, distriY[i], 1));
+//		lcdP->FillColor(Lcd::kBlack);
+//	}
+//#endif
 
 	cen.reserve(10);
 
@@ -839,6 +935,13 @@ void sendSignal(const Coor& b, const Coor& c)
 
 	tempMessage += 'e';
 	bluetoothP->SendStr(tempMessage);
+}
+
+uint32_t squaredDistance(const Coor& b, const Coor& c)
+{
+	int32_t xCom = b.x - c.x;
+	int32_t yCom = b.y - c.y;
+	return ( xCom * xCom ) + ( yCom * yCom );
 }
 
 k60::Ov7725::Config getCameraConfig()
