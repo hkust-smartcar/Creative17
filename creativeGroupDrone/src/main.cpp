@@ -6,6 +6,8 @@
  * Refer to LICENSE for details
  */
 
+#define _GLIBCXX_USE_C99 1
+
 #include <cassert>
 #include <cstring>
 #include <vector>
@@ -63,7 +65,16 @@ uint8_t MEAN_FILTER_WINDOW_SIZE = 1;	//window size should be odd
 
 #define ENABLE_LCD
 
+//#define DORNE_ONE
+
 #define DISTANCE_CHECK 30
+
+#define FAR_DISTANCE 10
+
+#define NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO 18
+
+#define DRONE_TWO_TRANS_X 3
+#define DRONE_TWO_TRANS_Y 3
 
 
 void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8]);
@@ -78,11 +89,16 @@ void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car);
 
 void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly);
 
-void sendSignal(const Coor& b, const Coor& c);
+//put centre in for convenience of DRONE TWO
+void sendSignal(const vector<Coor>& cen);
 
 bool switchBeacon(Coor bn, Coor Cr);
 
 uint32_t squaredDistance(const Coor& b, const Coor& c);
+
+void translatePoints(vector<Coor>& c);
+
+void excludeCentreFarAwayFromCar(vector<Coor>& c);
 
 
 k60::Ov7725::Config getCameraConfig();
@@ -112,6 +128,13 @@ bool startTheDroneProcess = false;
 
 bool fakeBeacon = false;
 bool beaconCarVeryClose = false;
+
+
+Coor car;
+Coor beacon;
+bool startFlag = false;
+string messageFromDrone;
+vector<int16_t> coorBuffer;
 
 
 ///////////////////////////////////////////////////////This is for the drone
@@ -158,8 +181,6 @@ int main(void)
 	bool boolImageFiltered[CAM_W][CAM_H];
 	vector<Coor> centre;
 //	vector<Coor> preCentre;		//assume size of two
-	Coor beacon;
-	Coor car;
 
 	//initialize camera related arrays and vectors
 	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
@@ -240,10 +261,10 @@ int main(void)
 				}
 			}
 
+#ifdef DRONE_ONE
 //			//update preCentre by using data in centre
 //			determinePts(centre, beacon, car);
 
-#define FAR_DISTANCE 10
 			if(beaconCarVeryClose == true && centre.size() == 0)
 			{
 				//STEP 5: the car got to the beacon but the new beacon is too far away such that it is not in the frame
@@ -333,6 +354,7 @@ int main(void)
 				}
 
 			}
+#endif
 
 
 			// //signal from the car to reset the data in the drone
@@ -344,7 +366,7 @@ int main(void)
 			// }
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
-			sendSignal(beacon, car);
+			sendSignal(centre);
 
 
 #ifdef ENABLE_LCD
@@ -629,10 +651,17 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 									in[cur.x][cur.y+1] = 1;
 								}
 							}
-						}
+						}//end of while loop for expanding the region
+
+
 						uint64_t cenX = 0;
 						uint64_t cenY = 0;
 						uint32_t base = qForStore.size();
+#ifndef DRONE_ONE
+						if(qForStore.size() > NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO)
+							goto END_OF_IF_ONE_WHITE_POINT_IS_FOUND;
+#endif
+
 						for(uint16_t k = 0; k < base; k++)
 						{
 							Coor tempCoor = qForStore.front();
@@ -640,9 +669,10 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 							cenX += tempCoor.x;
 							cenY += tempCoor.y;
 						}
-						Coor tempCoor = Coor(cenX/base, cenY/base);
-						cen.push_back(tempCoor);
-					}//end of while loop for expanding the region
+						cen.push_back(Coor(cenX/base, cenY/base));
+END_OF_IF_ONE_WHITE_POINT_IS_FOUND:
+						;
+					}//end of if one white point is found
 				}
 			}
 		}
@@ -862,7 +892,7 @@ float angleTracking(Coor beacon1, Coor beacon2)
 	{	return 0;	}
 }
 
-void sendSignal(const Coor& b, const Coor& c)
+void sendSignal(const vector<Coor>& cen)
 {
 	string tempMessage;
 	ledP[0]->Switch();
@@ -870,68 +900,98 @@ void sendSignal(const Coor& b, const Coor& c)
 
 	char buffer[20];
 
-	if(b == Coor())
+	if(beacon == Coor())
 	{
 		tempMessage += "-01,";
 		tempMessage += "-01,";
 	}else
 	{
-		if(b.x <= 9)
+		if(beacon.x <= 9)
 		{
-			sprintf(buffer, "00%d,", b.x);
-		}else if(b.x <= 99)
+			sprintf(buffer, "00%d,", beacon.x);
+		}else if(beacon.x <= 99)
 		{
-			sprintf(buffer, "0%d,", b.x);
+			sprintf(buffer, "0%d,", beacon.x);
 		}else
-			sprintf(buffer, "%d,", b.x);
+			sprintf(buffer, "%d,", beacon.x);
 
 		tempMessage += buffer;
 
-		if(b.y <= 9)
+		if(beacon.y <= 9)
 		{
-			sprintf(buffer, "00%d,", b.y);
-		}else if(b.y <= 99)
+			sprintf(buffer, "00%d,", beacon.y);
+		}else if(beacon.y <= 99)
 		{
-			sprintf(buffer, "0%d,", b.y);
+			sprintf(buffer, "0%d,", beacon.y);
 		}else
 		{
-			sprintf(buffer, "%d,", b.y);
+			sprintf(buffer, "%d,", beacon.y);
 		}
 
 		tempMessage += buffer;
 	}
-	if(c == Coor())
+	if(car == Coor())
 	{
 		tempMessage += "-01,";
 		tempMessage += "-01,";
 	}else
 	{
-		if(c.x <= 9)
+		if(car.x <= 9)
 		{
-			sprintf(buffer, "00%d,", c.x);
-		}else if(c.x <= 99)
+			sprintf(buffer, "00%d,", car.x);
+		}else if(car.x <= 99)
 		{
-			sprintf(buffer, "0%d,", c.x);
+			sprintf(buffer, "0%d,", car.x);
 		}else
 		{
-			sprintf(buffer, "%d,", c.x);
+			sprintf(buffer, "%d,", car.x);
 		}
 
 		tempMessage += buffer;
 
-		if(c.y <= 9)
+		if(car.y <= 9)
 		{
-			sprintf(buffer, "00%d,", c.y);
-		}else if(c.y <= 99)
+			sprintf(buffer, "00%d,", car.y);
+		}else if(car.y <= 99)
 		{
-			sprintf(buffer, "0%d,", c.y);
+			sprintf(buffer, "0%d,", car.y);
 		}else
 		{
-			sprintf(buffer, "%d,", c.y);
+			sprintf(buffer, "%d,", car.y);
 		}
 
 		tempMessage += buffer;
 	}
+
+#ifndef DRONE_ONE
+	//for obstacle detection
+	for(vector<Coor>::const_iterator it = cen.begin(); it != cen.end(); it++ )
+	{
+		if(it->x <= 9)
+		{
+			sprintf(buffer, "00%d,", it->x);
+		}else if(beacon.x <= 99)
+		{
+			sprintf(buffer, "0%d,", it->x);
+		}else
+			sprintf(buffer, "%d,", it->x);
+
+		tempMessage += buffer;
+
+		if(it->y <= 9)
+		{
+			sprintf(buffer, "00%d,", it->y);
+		}else if(beacon.y <= 99)
+		{
+			sprintf(buffer, "0%d,", it->y);
+		}else
+		{
+			sprintf(buffer, "%d,", it->y);
+		}
+
+		tempMessage += buffer;
+	}
+#endif
 
 	tempMessage += 'e';
 	bluetoothP->SendStr(tempMessage);
@@ -944,6 +1004,15 @@ uint32_t squaredDistance(const Coor& b, const Coor& c)
 	return ( xCom * xCom ) + ( yCom * yCom );
 }
 
+void translatePoints(vector<Coor>& c)
+{
+	for(vector<Coor>::iterator it = c.begin(); it != c.end(); it++)
+	{
+		it->x += DRONE_TWO_TRANS_X;
+		it->y += DRONE_TWO_TRANS_Y;
+	}
+}
+
 k60::Ov7725::Config getCameraConfig()
 {
 	k60::Ov7725::Config c;
@@ -951,8 +1020,6 @@ k60::Ov7725::Config getCameraConfig()
 	c.w = CAM_W;
 	c.h = CAM_H;
 	c.fps = k60::Ov7725Configurator::Config::Fps::kMid;
-//	c.contrast = 0x12;
-//	c.brightness = 0x33;
 
 	c.contrast = 0x10;
 	c.brightness = 0x43;
@@ -969,6 +1036,7 @@ UartDevice::Config getBluetoothConfig()
 	return c;
 }
 
+#ifdef DORNE_ONE
 bool bluetoothListener(const Byte* data, const size_t size)
 {
 	if(*data == 'g')
@@ -978,6 +1046,43 @@ bool bluetoothListener(const Byte* data, const size_t size)
 	}
 	return true;
 }
+#endif
+
+#ifndef DORNE_ONE
+bool bluetoothListener(const Byte* data, const size_t size)
+{
+	ledP[3]->Switch();
+	if( (*data <= '9' && *data >= '0') || *data == ',' || *data == 's' || *data == 'e')
+	{
+		if(*data == 's')
+		{
+	//		std::string temp;
+	//		temp += *data;
+	//		temp += '\n';
+	//		bluetoothP->SendStr(temp);
+			startFlag = true;
+		}else if(*data == 'e')
+		{
+			beacon = Coor(coorBuffer[0], coorBuffer[1]);
+			car = Coor(coorBuffer[2], coorBuffer[3]);
+			coorBuffer.clear();
+			startFlag = false;
+
+			//update the beacon coordinate by history
+//			carLocate();
+		}else if(*data == ',')
+		{
+			int32_t tempCoordinate = stoi(messageFromDrone);
+			coorBuffer.push_back(tempCoordinate);
+			messageFromDrone.clear();
+		}else if(startFlag == true)
+		{
+			messageFromDrone += *data;
+		}
+	}
+	return true;
+}
+#endif
 
 St7735r::Config getLcdConfig()
 {
