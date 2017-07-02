@@ -59,9 +59,9 @@ using namespace libutil;
 
 #define CAM_W 80
 #define CAM_H 60
-uint8_t MEAN_FILTER_WINDOW_SIZE = 5;	//window size should be odd
+uint8_t MEAN_FILTER_WINDOW_SIZE = 1;	//window size should be odd
 
-//#define ENABLE_LCD
+#define ENABLE_LCD
 
 #define DISTANCE_CHECK 30
 
@@ -950,7 +950,12 @@ k60::Ov7725::Config getCameraConfig()
 	c.id = 0;
 	c.w = CAM_W;
 	c.h = CAM_H;
-	c.fps = k60::Ov7725Configurator::Config::Fps::kHigh;
+	c.fps = k60::Ov7725Configurator::Config::Fps::kMid;
+//	c.contrast = 0x12;
+//	c.brightness = 0x33;
+
+	c.contrast = 0x10;
+	c.brightness = 0x43;
 	return c;
 }
 
