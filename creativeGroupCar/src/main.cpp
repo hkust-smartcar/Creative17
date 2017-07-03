@@ -121,6 +121,8 @@ const float countConstant = 100000;
 float carLocate();
 uint32_t distanceSquare(const Coor& a, const Coor& b);
 
+void motorSetPower(int16_t pL, int16_t pR);
+
 
 //k60::Ov7725::Config getCameraConfig();
 
@@ -142,6 +144,8 @@ JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
 Mpu6050* mpuP;
+DirMotor* motorLP;
+DirMotor* motorRP;
 
 
 std::vector<Coor> Car;
@@ -191,21 +195,21 @@ int main(void)
 
 
 
-//	//---------------------------------button
-//	Button::Config buttonC;
-//	buttonC.is_use_pull_resistor = false;
-//	buttonC.is_active_low = true;
-//	buttonC.id = 0;
-//	buttonC.listener_trigger = Button::Config::Trigger::kDown;
-//	buttonC.listener =  [](const uint8_t id)
-//						{
+	//---------------------------------button
+	Button::Config buttonC;
+	buttonC.is_use_pull_resistor = true;
+	buttonC.is_active_low = true;
+	buttonC.id = 0;
+	buttonC.listener_trigger = Button::Config::Trigger::kDown;
+	buttonC.listener =  [](const uint8_t id)
+						{
 //							for(int i = 0; i < 3; i++)
 //							{
 //								char buffer[50];
 //								sprintf(buffer, "%d: %d\t", i, acc[i]);
 //								bluetoothP->SendStr(buffer);
 //							}
-//						};
+						};
 
 	//---------------------------------irLedSwitch
 	Gpo::Config gpoC;
@@ -246,50 +250,48 @@ int main(void)
 //	ultraC.trigger = libbase::k60::Pin::Name::kPtc0;
 //	Sr04 ultraL(ultraC);
 
-	Gpi::Config echoC;
-	echoC.pin = libbase::k60::Pin::Name::kPtb23;
-	echoC.interrupt = Pin::Config::Interrupt::kBoth;
-	echoC.isr = [] (Gpi* gpi)
-	{
-		if (gpi->Get())
-		{ timeForUltraL =  System::TimeIn125us(); }
-		else
-		{ rangeForUltraL = System::TimeIn125us() - timeForUltraL; }
-	};
-
-	Gpi ultraEchoL(echoC);
-
-	echoC.pin = libbase::k60::Pin::Name::kPtc1;
-	echoC.interrupt = Pin::Config::Interrupt::kBoth;
-	echoC.isr = [] (Gpi* gpi)
-	{
-		if (gpi->Get())
-		{ timeForUltraR =  System::TimeIn125us(); }
-		else
-		{ rangeForUltraR = System::TimeIn125us() - timeForUltraR; }
-	};
-
-	Gpi ultraEchoR(echoC);
-
-	Gpo::Config triggerC;
-	triggerC.pin = libbase::k60::Pin::Name::kPtb22;
-	triggerC.is_high = false;
-
-	Gpo ultraTriggerL(triggerC);
-
-	triggerC.pin = libbase::k60::Pin::Name::kPtc0;
-	triggerC.is_high = false;
-
-	Gpo ultraTriggerR(triggerC);
 
 
+//	Gpi::Config echoC;
+//	echoC.pin = libbase::k60::Pin::Name::kPtb23;
+//	echoC.interrupt = Pin::Config::Interrupt::kBoth;
+//	echoC.isr = [] (Gpi* gpi)
+//	{
+//		if (gpi->Get())
+//		{ timeForUltraL =  System::TimeIn125us(); }
+//		else
+//		{ rangeForUltraL = System::TimeIn125us() - timeForUltraL; }
+//	};
+//
+//	Gpi ultraEchoL(echoC);
+//
+//	echoC.pin = libbase::k60::Pin::Name::kPtc1;
+//	echoC.interrupt = Pin::Config::Interrupt::kBoth;
+//	echoC.isr = [] (Gpi* gpi)
+//	{
+//		if (gpi->Get())
+//		{ timeForUltraR =  System::TimeIn125us(); }
+//		else
+//		{ rangeForUltraR = System::TimeIn125us() - timeForUltraR; }
+//	};
+//
+//	Gpi ultraEchoR(echoC);
+//
+//	Gpo::Config triggerC;
+//	triggerC.pin = libbase::k60::Pin::Name::kPtb22;
+//	triggerC.is_high = false;
+//
+//	Gpo ultraTriggerL(triggerC);
+//
+//	triggerC.pin = libbase::k60::Pin::Name::kPtc0;
+//	triggerC.is_high = false;
+//
+//	Gpo ultraTriggerR(triggerC);
 
 	//--------------------------------bluetooth
 	UartDevice::Config bluetoothC;
 	bluetoothC.id = 0;
 	bluetoothC.baud_rate = Uart::Config::BaudRate::k115200;
-//	c.rx_irq_threshold = 1;
-//	c.tx_buf_size = ;
 	bluetoothC.rx_isr = bluetoothListenerOne;
 	JyMcuBt106 bt1(bluetoothC);
 	bluetoothP[0] = &bt1;
@@ -298,7 +300,6 @@ int main(void)
 	bluetoothC.rx_isr = bluetoothListenerTwo;
 	JyMcuBt106 bt2(bluetoothC);
 	bluetoothP[1] = &bt2;
-
 
 	//--------------------------------mpu
 	Mpu6050 mpu(getMpuConfig());
@@ -317,12 +318,11 @@ int main(void)
 	DirMotor::Config motor_Config;
 	motor_Config.id=0;
 	DirMotor motorL(motor_Config);
+	motorLP = &motorL;
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
-	motorL.SetClockwise(true); // for left motor, true == forward
-	motorL.SetPower(150);
-	motorR.SetClockwise(false); // for right motor, false == forward
-	motorR.SetPower(150);
+	motorRP = &motorR;
+	motorSetPower(150, 150);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
@@ -333,12 +333,8 @@ int main(void)
 	enc2.id = 1;
 	DirEncoder encoderR(enc2);
 
-
 	bool irOn = false;
-//	int servoDegreeTemp = 0;
 	bool lockServo = false;
-	char rangeBuffer[50];
-
 
 	while(!startTheCarProcess)
 	{
@@ -360,13 +356,13 @@ int main(void)
 			lastTime = System::Time();
 			ledP[0]->Switch();
 
-			//triggering ultrasonic
-			ultraTriggerR.Set();
-			ultraTriggerL.Set();
-			uint32_t startTimeForUltra = System::TimeIn125us();
-			while(System::TimeIn125us() < startTimeForUltra + 2){;}
-			ultraTriggerR.Reset();
-			ultraTriggerL.Reset();
+//			//triggering ultrasonic
+//			ultraTriggerR.Set();
+//			ultraTriggerL.Set();
+//			uint32_t startTimeForUltra = System::TimeIn125us();
+//			while(System::TimeIn125us() < startTimeForUltra + 2){;}
+//			ultraTriggerR.Reset();
+//			ultraTriggerL.Reset();
 
 			//switching ir led
 			if(irOn)
@@ -612,6 +608,31 @@ float carLocate()
 
 uint32_t distanceSquare(const Coor& a, const Coor& b)
 {	return (a.x -b.x) *(a.x -b.x) + (a.y -b.y) *(a.y -b.y);	}		// (x2-x1)^2 + (y2-y1)^2
+
+void motorSetPower(int16_t pL, int16_t pR)
+{
+	//go forward
+	if(pL >= 0)
+	{
+		motorLP->SetClockwise(true); // for left motor, true == forward
+		motorLP->SetPower(150);
+	}else
+	{
+		motorLP->SetClockwise(false);
+		motorLP->SetPower(150);
+	}
+
+	//go forward
+	if(pR >= 0)
+	{
+		motorRP->SetClockwise(false); // for right motor, false == forward
+		motorRP->SetPower(150);
+	}else
+	{
+		motorRP->SetClockwise(true);
+		motorRP->SetPower(150);
+	}
+}
 
 /*
 k60::Ov7725::Config getCameraConfig()
