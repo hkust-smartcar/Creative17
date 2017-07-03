@@ -18,6 +18,7 @@
 #include "Coor.h"
 #include "PID.h"
 #include "Sr04.h"
+#include "Qmc5883.h"
 #include <libbase/k60/mcg.h>
 #include <libsc/system.h>
 #include <libsc/led.h>
@@ -241,53 +242,6 @@ int main(void)
 	LcdTypewriter writer(config);
 	writerP = &writer;
 
-	//--------------------------------ultra-sound
-//	Sr04::Config ultraC;
-//	ultraC.echo = libbase::k60::Pin::Name::kPtb23;
-//	ultraC.trigger = libbase::k60::Pin::Name::kPtb22;
-//	Sr04 ultraR(ultraC);
-//	ultraC.echo = libbase::k60::Pin::Name::kPtc1;
-//	ultraC.trigger = libbase::k60::Pin::Name::kPtc0;
-//	Sr04 ultraL(ultraC);
-
-
-
-//	Gpi::Config echoC;
-//	echoC.pin = libbase::k60::Pin::Name::kPtb23;
-//	echoC.interrupt = Pin::Config::Interrupt::kBoth;
-//	echoC.isr = [] (Gpi* gpi)
-//	{
-//		if (gpi->Get())
-//		{ timeForUltraL =  System::TimeIn125us(); }
-//		else
-//		{ rangeForUltraL = System::TimeIn125us() - timeForUltraL; }
-//	};
-//
-//	Gpi ultraEchoL(echoC);
-//
-//	echoC.pin = libbase::k60::Pin::Name::kPtc1;
-//	echoC.interrupt = Pin::Config::Interrupt::kBoth;
-//	echoC.isr = [] (Gpi* gpi)
-//	{
-//		if (gpi->Get())
-//		{ timeForUltraR =  System::TimeIn125us(); }
-//		else
-//		{ rangeForUltraR = System::TimeIn125us() - timeForUltraR; }
-//	};
-//
-//	Gpi ultraEchoR(echoC);
-//
-//	Gpo::Config triggerC;
-//	triggerC.pin = libbase::k60::Pin::Name::kPtb22;
-//	triggerC.is_high = false;
-//
-//	Gpo ultraTriggerL(triggerC);
-//
-//	triggerC.pin = libbase::k60::Pin::Name::kPtc0;
-//	triggerC.is_high = false;
-//
-//	Gpo ultraTriggerR(triggerC);
-
 	//--------------------------------bluetooth
 	UartDevice::Config bluetoothC;
 	bluetoothC.id = 0;
@@ -301,9 +255,9 @@ int main(void)
 	JyMcuBt106 bt2(bluetoothC);
 	bluetoothP[1] = &bt2;
 
-	//--------------------------------mpu
-	Mpu6050 mpu(getMpuConfig());
-	mpuP = &mpu;
+//	//--------------------------------mpu
+//	Mpu6050 mpu(getMpuConfig());
+//	mpuP = &mpu;
 
 //	//--------------------------------joysick
 //	Joystick js(getJoystickConfig(0));
@@ -333,6 +287,11 @@ int main(void)
 	enc2.id = 1;
 	DirEncoder encoderR(enc2);
 
+//	--------------------------------compass
+	Qmc5883::Config compassC;
+	Qmc5883 compass(compassC);
+
+
 	bool irOn = false;
 	bool lockServo = false;
 
@@ -355,14 +314,6 @@ int main(void)
 		{
 			lastTime = System::Time();
 			ledP[0]->Switch();
-
-//			//triggering ultrasonic
-//			ultraTriggerR.Set();
-//			ultraTriggerL.Set();
-//			uint32_t startTimeForUltra = System::TimeIn125us();
-//			while(System::TimeIn125us() < startTimeForUltra + 2){;}
-//			ultraTriggerR.Reset();
-//			ultraTriggerL.Reset();
 
 			//switching ir led
 			if(irOn)
