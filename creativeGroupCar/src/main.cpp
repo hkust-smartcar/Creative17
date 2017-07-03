@@ -113,6 +113,7 @@ const float countConstant = 100000;
 //so use centre to do process also
 float carLocate();
 int32_t distanceSquare(const Coor& a, const Coor& b);
+void motorSetPower(int16_t pL, int16_t pR);
 
 
 //k60::Ov7725::Config getCameraConfig();
@@ -126,7 +127,8 @@ Joystick::Config getJoystickConfig(uint8_t _id);
 //sXXX,XXX,XXX,XXX,e the first Coor is beacon
 bool bluetoothListenerOne(const Byte* data, const size_t size);
 bool bluetoothListenerTwo(const Byte* data, const size_t size);
-
+//void B1Listener(const uint8_t);
+//void B2Listener(const uint8_t);
 
 
 Led* ledP[4];
@@ -136,6 +138,10 @@ JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
 Mpu6050* mpuP;
+DirMotor* motorLP;
+DirMotor* motorRP;
+
+
 std::vector<Coor> Car;
 Coor Beacon;
 bool startFlag = false;
@@ -167,25 +173,38 @@ PID motorRControl;
 
 bool programEnd = false;
 
+uint16_t servoAngleSpecial = SERVO_CENTRE + 80;
+
 int main(void)
 {
 	System::Init();
 
-//	//---------------------------------button
-//	Button::Config buttonC;
-//	buttonC.is_use_pull_resistor = false;
-//	buttonC.is_active_low = true;
-//	buttonC.id = 0;
-//	buttonC.listener_trigger = Button::Config::Trigger::kDown;
-//	buttonC.listener =  [](const uint8_t id)
-//						{
-//							for(int i = 0; i < 3; i++)
-//							{
-//								char buffer[50];
-//								sprintf(buffer, "%d: %d\t", i, acc[i]);
-//								bluetoothP->SendStr(buffer);
-//							}
-//						};
+	//---------------------------------button
+	Button::Config cB1;
+	cB1.id = 0;
+	cB1.is_active_low = true;
+	cB1.is_use_pull_resistor = true;
+	//cB1.listener = &B1Listener;
+	cB1.listener =  [](const uint8_t id)
+						{
+							servoAngleSpecial -= 30;
+						};
+	cB1.listener_trigger = Button::Config::Trigger::kDown;
+	Button button1(cB1);
+
+	Button::Config cB2;
+	cB2.id = 1;
+	cB2.is_active_low = true;
+	cB2.is_use_pull_resistor = true;
+	//cB2.listener = &B2Listener;
+	cB2.listener =  [](const uint8_t id)
+						{
+							servoAngleSpecial += 30;
+						};
+	cB2.listener_trigger = Button::Config::Trigger::kDown;
+	Button button2(cB2);
+
+
 
 	//---------------------------------irLedSwitch
 	Gpo::Config gpoC;
@@ -250,12 +269,11 @@ int main(void)
 	DirMotor::Config motor_Config;
 	motor_Config.id=0;
 	DirMotor motorL(motor_Config);
+	motorLP = &motorL;
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
-	motorL.SetClockwise(true); // for left motor, true == forward
-	motorL.SetPower(0);
-	motorR.SetClockwise(false); // for right motor, false == forward
-	motorR.SetPower(0);
+	motorRP = &motorR;
+	motorSetPower(180, 180);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
@@ -274,8 +292,8 @@ int main(void)
 	bool moveForward = false;
 
 	char rangeBuffer[50];
-	uint32_t accEncL = 0;
-	uint32_t accEncR = 0;
+	int32_t accEncL = 0;
+	int32_t accEncR = 0;
 
 //	while(!startTheCarProcess)
 //	{
@@ -285,8 +303,11 @@ int main(void)
 //		bluetoothP[0]->SendStr("g");
 //		System::DelayMs(20);
 //	}
+	ledP[2]->SetEnable(true);
+//	ledP[2]->SetEnable(false);
+	System::DelayMs(1500);
 
-	ledP[2]->SetEnable(false);
+	servo.SetDegree(servoAngleSpecial);
 
 	uint32_t lastTime = System::Time();
 	while(true)
@@ -307,33 +328,34 @@ int main(void)
 				ir.Set();
 				irOn = true;
 			}
-
+		//---------------------------------------
+			servo.SetDegree(servoAngleSpecial);
 
 			//for dodging beacon
 			encoderL.Update();
 			encoderR.Update();
 			eReadingL = encoderL.GetCount();
 			eReadingR = (-encoderR.GetCount());
-
+			char bluetoothBuffer[100];
+			sprintf(bluetoothBuffer, "encoderL: %d\t encoderR: %d\n", eReadingL, eReadingR);
+			bluetoothP[0]->SendStr(bluetoothBuffer);
 
 			//blocked by something
-			if ((eReadingL == 0) && (eReadingR == 0))
+			if ((eReadingL < 20) && (eReadingR < 20) && (eReadingR >= 0) && (eReadingR >= 0))
 			{
 				if(moveForward == false)
 					moveBack = true;
 			}
+
 			//move backward
 			if (moveBack == true)
 			{
 				//for some distance
-				if ((accEncR < (COUNT_FOR_ONE_METER /4)) || (accEncL < (COUNT_FOR_ONE_METER /4)))
+				if ((accEncR < (COUNT_FOR_ONE_METER / 18)) && (accEncL < (COUNT_FOR_ONE_METER / 18)))
 				{
 					accEncR += encoderR.GetCount();
 					accEncL -= encoderL.GetCount();
-					motorL.SetClockwise(false);
-					motorR.SetClockwise(true);
-					motorL.SetPower(220);
-					motorR.SetPower(220);
+					motorSetPower(-220, -220);
 
 					//turn more to the same direction
 					if (servo.GetDegree() > SERVO_CENTRE)
@@ -344,18 +366,17 @@ int main(void)
 				{
 					accEncR = 0;
 					accEncL = 0;
-					motorL.SetClockwise(true);
-					motorR.SetClockwise(false);
-					motorL.SetPower(170);
-					motorR.SetPower(170);
+					motorSetPower(170, 170);
 					moveBack = false;
 					moveForward = true;
 				}
 			}else if (moveForward == true)
 			{
-				if ((accEncR < (COUNT_FOR_ONE_METER /4)) || (accEncL < (COUNT_FOR_ONE_METER /4)))
+				if ((accEncR < (COUNT_FOR_ONE_METER / 48)) && (accEncL < (COUNT_FOR_ONE_METER / 48)))
 				{
-					servo.SetDegree(SERVO_CENTRE);
+					accEncR -= encoderR.GetCount();
+					accEncL += encoderL.GetCount();
+					servoAngleSpecial = SERVO_CENTRE;
 				}else
 				{
 					accEncR = 0;
@@ -363,168 +384,121 @@ int main(void)
 					moveForward = false;
 				}
 			}
-
-			//calculate car beacon angle with angle in image and car drifted angle
-			//update car drifted angle from mpu
-			mpuP->Update();
-			for(int i = 0; i < 3; i++)
-			{
-				acc[i] = mpuP->GetAccel()[i];
-				gyo[i] = mpuP->GetOmega()[i];
-			}
-
-			//car heading angle from gyroscope
-			carHeadingAngle = carHeadingAngle + ( gyo[2] / countConstant);
-			if(carHeadingAngle > 180)
-			{	carHeadingAngle = carHeadingAngle - 360;	}
-			else if(carHeadingAngle < -180)
-			{	carHeadingAngle = 360 + carHeadingAngle;	}
-
-//			char buffer[50];
-//			sprintf(buffer, "%f\n", carHeadingAngle);
-//			bluetoothP->SendStr(buffer);
-
-//			bluetoothP->SendStr("acc  \t");
+//
+//			//calculate car beacon angle with angle in image and car drifted angle
+//			//update car drifted angle from mpu
+//			mpuP->Update();
 //			for(int i = 0; i < 3; i++)
 //			{
-//				char buffer[60];
-//				sprintf(buffer, "%d: %d\t", i, acc[i]);
-//				bluetoothP->SendStr(buffer);
+//				acc[i] = mpuP->GetAccel()[i];
+//				gyo[i] = mpuP->GetOmega()[i];
 //			}
-//			bluetoothP->SendStr("\n");
-
-			//add them up
-			if((Beacon != Coor()) && (Car.size() > 0))
-			{
-				if(Car[0] != Coor())
-				{
-					ledP[1]->Switch();
-					int16_t dx = Car[0].x - Beacon.x;
-					int16_t dy = Car[0].y - Beacon.y;
-					//calculate local angle
-					uint32_t hyp = distanceSquare(Car[0], Beacon);
-
-					if (hyp != 0)
-					{
-/*
-						//52, 33, 39, 39
-						//-----------obstacle detection
-						if (distanceSquare(Car[0], Beacon) < 256)
-						{
-							lockServo = true;
-							distanceForLockServo = 0;
-							servo.SetDegree(SERVO_RIGHT_LIMIT);
-							motorL.SetPower(120);
-							motorR.SetPower(110);
-						}
-						//------------------------------
-
-						//calculate the distance passed after locking the servo
-						if(lockServo)
-						{
-							//determine the locked direction
-							if(servo.GetDegree() == SERVO_RIGHT_LIMIT)
-							{
-								if(encoderL.GetCount() > 0)
-									distanceForLockServo += (encoderL.GetCount());
-							}else
-							{
-								if(-encoderR.GetCount() > 0)
-									distanceForLockServo += (-encoderR.GetCount());
-							}
-						}else
-						{
-								//maybe go faster than lock servo
-							motorL.SetPower(170);			//
-							motorR.SetPower(170);			//
-						}
-
-						//unlock the servo
-						if(distanceForLockServo > DISTANCE_FOR_UNLOCK_SERVO)
-						{
-							lockServo = false;
-			//				servo.SetDegree(SERVO_CENTRE);
-							distanceForLockServo = 0;
-							//can set a faster speed
-								//maybe go faster than lock servo
-							motorL.SetPower(170);			//
-							motorR.SetPower(170);			//
-						}
-
-*/
-						if(dx == 0)
-						{
-							dy > 0? carAngleError = 0.0f : carAngleError = 179.99999999999f;
-						}else
-						{
-							float inputX = dx / Math::Sqrt2(hyp);
-							if(dy == 0)
-							{
-								dx > 0? carAngleError = 90.0f : carAngleError = -90.0f;
-							}else if(dx > 0)
-							{
-								if(dy > 0)
-								{
-									carAngleError = Math::ArcSin(inputX);
-									carAngleError = carAngleError * 180 / PI;
-								}else
-								{
-									carAngleError = Math::ArcSin(inputX);
-									carAngleError = carAngleError * 180 / PI;
-									carAngleError = 180 -  carAngleError;
-								}
-							}else
-							{
-								if(dy > 0)
-								{
-									carAngleError = -Math::ArcSin(-inputX);
-									carAngleError = carAngleError * 180 / PI;
-								}else
-								{
-									carAngleError = -Math::ArcSin(-inputX);
-									carAngleError = carAngleError * 180 / PI;
-									carAngleError = -180 - carAngleError;
-								}
-
-							}
-						}
-//						char buffer[100];
-//						sprintf(buffer, "%f\n", carAngleError);
-//						bluetoothP->SendStr(buffer);
-						carAngleError -= carHeadingAngle;
-						if(carAngleError > 180)
-						{
-							carAngleError = carAngleError - 360;
-						}else if(carAngleError < -180)
-						{
-							carAngleError = 360 + carHeadingAngle;
-						}
-//						char buffer[100];
-//						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
-//						bluetoothP[1]->SendStr(buffer);
-					}else
-					{
-						//distance == 0
-						//determine what to do later
-					}
-				}
-			}else
-			{
-				//no information of how to move
-				motorL.SetPower(0);
-				motorR.SetPower(0);
-			}
-
-			if (moveBack == false)
-			{
-				//control servo and motor
-				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKp);
-				if(servoOutput > SERVO_LEFT_LIMIT)
-					servoOutput = SERVO_LEFT_LIMIT;
-				else if(servoOutput < SERVO_RIGHT_LIMIT)
-					servoOutput = SERVO_RIGHT_LIMIT;
-				servo.SetDegree(servoOutput);
-			}
+//
+//			//car heading angle from gyroscope
+//			carHeadingAngle = carHeadingAngle + ( gyo[2] / countConstant);
+//			if(carHeadingAngle > 180)
+//			{	carHeadingAngle = carHeadingAngle - 360;	}
+//			else if(carHeadingAngle < -180)
+//			{	carHeadingAngle = 360 + carHeadingAngle;	}
+//
+////			char buffer[50];
+////			sprintf(buffer, "%f\n", carHeadingAngle);
+////			bluetoothP->SendStr(buffer);
+//
+////			bluetoothP->SendStr("acc  \t");
+////			for(int i = 0; i < 3; i++)
+////			{
+////				char buffer[60];
+////				sprintf(buffer, "%d: %d\t", i, acc[i]);
+////				bluetoothP->SendStr(buffer);
+////			}
+////			bluetoothP->SendStr("\n");
+//
+//			//add them up
+//			if((Beacon != Coor()) && (Car.size() > 0))
+//			{
+//				if(Car[0] != Coor())
+//				{
+//					ledP[1]->Switch();
+//					int16_t dx = Car[0].x - Beacon.x;
+//					int16_t dy = Car[0].y - Beacon.y;
+//					//calculate local angle
+//					uint32_t hyp = distanceSquare(Car[0], Beacon);
+//
+//					if (hyp != 0)
+//					{
+//						if(dx == 0)
+//						{
+//							dy > 0? carAngleError = 0.0f : carAngleError = 179.99999999999f;
+//						}else
+//						{
+//							float inputX = dx / Math::Sqrt2(hyp);
+//							if(dy == 0)
+//							{
+//								dx > 0? carAngleError = 90.0f : carAngleError = -90.0f;
+//							}else if(dx > 0)
+//							{
+//								if(dy > 0)
+//								{
+//									carAngleError = Math::ArcSin(inputX);
+//									carAngleError = carAngleError * 180 / PI;
+//								}else
+//								{
+//									carAngleError = Math::ArcSin(inputX);
+//									carAngleError = carAngleError * 180 / PI;
+//									carAngleError = 180 -  carAngleError;
+//								}
+//							}else
+//							{
+//								if(dy > 0)
+//								{
+//									carAngleError = -Math::ArcSin(-inputX);
+//									carAngleError = carAngleError * 180 / PI;
+//								}else
+//								{
+//									carAngleError = -Math::ArcSin(-inputX);
+//									carAngleError = carAngleError * 180 / PI;
+//									carAngleError = -180 - carAngleError;
+//								}
+//
+//							}
+//						}
+////						char buffer[100];
+////						sprintf(buffer, "%f\n", carAngleError);
+////						bluetoothP->SendStr(buffer);
+//						carAngleError -= carHeadingAngle;
+//						if(carAngleError > 180)
+//						{
+//							carAngleError = carAngleError - 360;
+//						}else if(carAngleError < -180)
+//						{
+//							carAngleError = 360 + carHeadingAngle;
+//						}
+////						char buffer[100];
+////						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
+////						bluetoothP[1]->SendStr(buffer);
+//					}else
+//					{
+//						//distance == 0
+//						//determine what to do later
+//					}
+//				}
+//			}else
+//			{
+//				//no information of how to move
+//				motorSetPower(0, 0);
+//			}
+//
+//			if (moveBack == false && moveForward == false)
+//			{
+//				//control servo and motor
+//				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKp);
+//				if(servoOutput > SERVO_LEFT_LIMIT)
+//					servoOutput = SERVO_LEFT_LIMIT;
+//				else if(servoOutput < SERVO_RIGHT_LIMIT)
+//					servoOutput = SERVO_RIGHT_LIMIT;
+//				servo.SetDegree(servoOutput);
+//			}
 
 		}//end if for checking time
 	}//end while loop
@@ -568,6 +542,31 @@ float carLocate()
 
 int32_t distanceSquare(const Coor& a, const Coor& b)
 {	return (a.x -b.x) *(a.x -b.x) + (a.y -b.y) *(a.y -b.y);	}		// (x2-x1)^2 + (y2-y1)^2
+
+void motorSetPower(int16_t pL, int16_t pR)
+{
+	//go forward
+	if(pL >= 0)
+	{
+		motorLP->SetClockwise(true); // for left motor, true == forward
+		motorLP->SetPower(150);
+	}else
+	{
+		motorLP->SetClockwise(false);
+		motorLP->SetPower(150);
+	}
+
+	//go forward
+	if(pR >= 0)
+	{
+		motorRP->SetClockwise(false); // for right motor, false == forward
+		motorRP->SetPower(150);
+	}else
+	{
+		motorRP->SetClockwise(true);
+		motorRP->SetPower(150);
+	}
+}
 
 /*
 k60::Ov7725::Config getCameraConfig()
