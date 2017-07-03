@@ -145,6 +145,7 @@ LcdTypewriter* writerP;
 Mpu6050* mpuP;
 std::vector<Coor> Car;
 Coor Beacon;
+std::vector<Coor> Obstacle;
 bool startFlag = false;
 float distance = 0.0f;
 
@@ -688,6 +689,7 @@ bool bluetoothListenerOne(const Byte* data, const size_t size)
 	//		temp += '\n';
 	//		bluetoothP->SendStr(temp);
 			startFlag = true;
+			Obstacle.clear();
 		}else if(*data == 'e')
 		{
 			Beacon = Coor(coorBuffer[0], coorBuffer[1]);
@@ -695,6 +697,14 @@ bool bluetoothListenerOne(const Byte* data, const size_t size)
 				Car.push_back(Coor(coorBuffer[2], coorBuffer[3]));
 			else
 				Car.front() = Coor(coorBuffer[2], coorBuffer[3]);
+			if(coorBuffer.size() > 4)
+			{
+				//save the extra data from DRONE_TWO to Obstacle
+				for(uint16_t i = 4; i < coorBuffer.size(); i += 2)
+				{
+					Obstacle.push_back(Coor(coorBuffer[i], coorBuffer[i + 1]));
+				}
+			}
 			coorBuffer.clear();
 			startFlag = false;
 

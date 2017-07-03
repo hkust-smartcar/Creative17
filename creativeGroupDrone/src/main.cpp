@@ -63,13 +63,13 @@ using namespace libutil;
 #define CAM_H 60
 uint8_t MEAN_FILTER_WINDOW_SIZE = 1;	//window size should be odd
 
-#define ENABLE_LCD
+//#define ENABLE_LCD
 
-//#define DORNE_ONE
+#define DRONE_ONE
 
 #define DISTANCE_CHECK 30
 
-#define FAR_DISTANCE 10
+#define FAR_DISTANCE 8
 
 #define NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO 18
 
@@ -1036,7 +1036,7 @@ UartDevice::Config getBluetoothConfig()
 	return c;
 }
 
-#ifdef DORNE_ONE
+#ifdef DRONE_ONE
 bool bluetoothListener(const Byte* data, const size_t size)
 {
 	if(*data == 'g')
@@ -1048,7 +1048,7 @@ bool bluetoothListener(const Byte* data, const size_t size)
 }
 #endif
 
-#ifndef DORNE_ONE
+#ifndef DRONE_ONE
 bool bluetoothListener(const Byte* data, const size_t size)
 {
 	ledP[3]->Switch();
