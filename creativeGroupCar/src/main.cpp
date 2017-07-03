@@ -17,15 +17,14 @@
 #include <cstdint>
 #include "Coor.h"
 #include "PID.h"
-//#include "Sr04.h"
+
 #include <libbase/k60/mcg.h>
 #include <libsc/system.h>
 #include <libsc/led.h>
 #include <libsc/button.h>
 #include <libbase/k60/gpio.h>
 #include <libbase/k60/pin.h>
-//#include <libsc/k60/ov7725.h>
-//#include <libsc/k60/ov7725_configurator.h>
+
 #include <libsc/k60/uart_device.h>
 #include <libsc/k60/jy_mcu_bt_106.h>
 #include <libsc/futaba_s3010.h>
@@ -46,7 +45,6 @@ namespace libbase
 {
 	namespace k60
 	{
-
 		Mcg::Config Mcg::GetMcgConfig()
 		{
 			Mcg::Config config;
@@ -54,7 +52,6 @@ namespace libbase
 			config.core_clock_khz = 200000;
 			return config;
 		}
-
 	}
 }
 
@@ -71,14 +68,10 @@ struct vec
     vec(const vec& v):x(v.x), y(v.y), z(v.z){}
 
     vec operator+(const vec& v)
-    {
-        return vec(x+v.x, y+v.y, z+v.z);
-    }
+    {	return vec(x+v.x, y+v.y, z+v.z);	}
 
     vec operator-(const vec& v)
-    {
-        return vec(x-v.x, y-v.y, z-v.z);
-    }
+    {	return vec(x-v.x, y-v.y, z-v.z);	}
 
     vec& operator=(const vec& v)
     {
@@ -155,15 +148,10 @@ float carHeadingAngle;
 float carAngleError; //positive need to turn left, negative need to turn right
 std::string messageFromDrone;
 std::vector<int16_t> coorBuffer;
+
 float servoKp = 20;
 uint16_t servoOutput;
 
-/*
-uint32_t timeForUltraL = 0;
-float rangeForUltraL = 0.0;
-uint32_t timeForUltraR = 0;
-float rangeForUltraR = 0.0;
-*/
 
 int32_t distanceForLockServo = 0;
 uint8_t countForLockServoL = 0;
@@ -182,8 +170,6 @@ bool programEnd = false;
 int main(void)
 {
 	System::Init();
-
-
 
 //	//---------------------------------button
 //	Button::Config buttonC;
@@ -231,54 +217,6 @@ int main(void)
 	LcdTypewriter writer(config);
 	writerP = &writer;
 
-	//--------------------------------ultra-sound
-//	Sr04::Config ultraC;
-//	ultraC.echo = libbase::k60::Pin::Name::kPtb23;
-//	ultraC.trigger = libbase::k60::Pin::Name::kPtb22;
-//	Sr04 ultraR(ultraC);
-//	ultraC.echo = libbase::k60::Pin::Name::kPtc1;
-//	ultraC.trigger = libbase::k60::Pin::Name::kPtc0;
-//	Sr04 ultraL(ultraC);
-
-	/*
-	Gpi::Config echoC;
-	echoC.pin = libbase::k60::Pin::Name::kPtb23;
-	echoC.interrupt = Pin::Config::Interrupt::kBoth;
-	echoC.isr = [] (Gpi* gpi)
-	{
-		if (gpi->Get())
-		{ timeForUltraL =  System::TimeIn125us(); }
-		else
-		{ rangeForUltraL = System::TimeIn125us() - timeForUltraL; }
-	};
-
-	Gpi ultraEchoL(echoC);
-
-	echoC.pin = libbase::k60::Pin::Name::kPtc1;
-	echoC.interrupt = Pin::Config::Interrupt::kBoth;
-	echoC.isr = [] (Gpi* gpi)
-	{
-		if (gpi->Get())
-		{ timeForUltraR =  System::TimeIn125us(); }
-		else
-		{ rangeForUltraR = System::TimeIn125us() - timeForUltraR; }
-	};
-
-	Gpi ultraEchoR(echoC);
-
-	Gpo::Config triggerC;
-	triggerC.pin = libbase::k60::Pin::Name::kPtb22;
-	triggerC.is_high = false;
-
-	Gpo ultraTriggerL(triggerC);
-
-	triggerC.pin = libbase::k60::Pin::Name::kPtc0;
-	triggerC.is_high = false;
-
-	Gpo ultraTriggerR(triggerC);
-
-*/
-
 	//--------------------------------bluetooth
 	UartDevice::Config bluetoothC;
 	bluetoothC.id = 0;
@@ -315,9 +253,9 @@ int main(void)
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
 	motorL.SetClockwise(true); // for left motor, true == forward
-//	motorL.SetPower(150);
+	motorL.SetPower(0);
 	motorR.SetClockwise(false); // for right motor, false == forward
-//	motorR.SetPower(150);
+	motorR.SetPower(0);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
@@ -332,8 +270,12 @@ int main(void)
 	bool irOn = false;
 //	int servoDegreeTemp = 0;
 	bool lockServo = false;
-	char rangeBuffer[50];
+	bool moveBack = false;
+	bool moveForward = false;
 
+	char rangeBuffer[50];
+	uint32_t accEncL = 0;
+	uint32_t accEncR = 0;
 
 //	while(!startTheCarProcess)
 //	{
@@ -355,14 +297,6 @@ int main(void)
 			lastTime = System::Time();
 			ledP[0]->Switch();
 
-	/*		//triggering ultrasonic
-			ultraTriggerR.Set();
-			ultraTriggerL.Set();
-			uint32_t startTimeForUltra = System::TimeIn125us();
-			while(System::TimeIn125us() < startTimeForUltra + 2){;}
-			ultraTriggerR.Reset();
-			ultraTriggerL.Reset();
-	 */
 			//switching ir led
 			if(irOn)
 			{
@@ -374,50 +308,61 @@ int main(void)
 				irOn = true;
 			}
 
-//			char rangeBuffer[50];
-//			sprintf(rangeBuffer, "range L: %f\t range R: %f\n", rangeForUltraL * 0.02125, rangeForUltraR * 0.02125);
-//			bluetoothP->SendStr(rangeBuffer);
 
 			//for dodging beacon
 			encoderL.Update();
 			encoderR.Update();
-//			eReadingL += encoderL.GetCount();
-//			eReadingR += (-encoderR.GetCount());
-/*
-			//obstacle detection
-			if ((rangeForUltraR * 0.02125 < 0.45) && (rangeForUltraL * 0.02125 < 0.45))
-			{
-				//for filtering
-				countForLockServoR++;
-				if(countForLockServoR == 3)
-				{
-					lockServo = true;
-					distanceForLockServo = 0;
-					servo.SetDegree(SERVO_RIGHT_LIMIT);
-					motorL.SetPower(150);
-					motorR.SetPower(150);
-				}
-			}
-			/*else if(rangeForUltraL * 0.02125 < 0.45)
-			{
-				//for filtering
-				countForLockServoL++;
-				if(countForLockServoL == 3)
-				{
-					lockServo = true;
-					distanceForLockServo = 0;
-					servo.SetDegree(SERVO_LEFT_LIMIT);
-					motorL.SetPower(150);
-					motorR.SetPower(150);
-				}
-			}
-			*//*else
-			{
-				countForLockServoR = 0;
-	//			countForLockServoL = 0;
-			}
-*/
+			eReadingL = encoderL.GetCount();
+			eReadingR = (-encoderR.GetCount());
 
+
+			//blocked by something
+			if ((eReadingL == 0) && (eReadingR == 0))
+			{
+				if(moveForward == false)
+					moveBack = true;
+			}
+			//move backward
+			if (moveBack == true)
+			{
+				//for some distance
+				if ((accEncR < (COUNT_FOR_ONE_METER /4)) || (accEncL < (COUNT_FOR_ONE_METER /4)))
+				{
+					accEncR += encoderR.GetCount();
+					accEncL -= encoderL.GetCount();
+					motorL.SetClockwise(false);
+					motorR.SetClockwise(true);
+					motorL.SetPower(220);
+					motorR.SetPower(220);
+
+					//turn more to the same direction
+					if (servo.GetDegree() > SERVO_CENTRE)
+					{	servo.SetDegree(SERVO_LEFT_LIMIT);	}
+					else
+					{	servo.SetDegree(SERVO_RIGHT_LIMIT);	}
+				}else //move forward again by setting the flag
+				{
+					accEncR = 0;
+					accEncL = 0;
+					motorL.SetClockwise(true);
+					motorR.SetClockwise(false);
+					motorL.SetPower(170);
+					motorR.SetPower(170);
+					moveBack = false;
+					moveForward = true;
+				}
+			}else if (moveForward == true)
+			{
+				if ((accEncR < (COUNT_FOR_ONE_METER /4)) || (accEncL < (COUNT_FOR_ONE_METER /4)))
+				{
+					servo.SetDegree(SERVO_CENTRE);
+				}else
+				{
+					accEncR = 0;
+					accEncL = 0;
+					moveForward = false;
+				}
+			}
 
 			//calculate car beacon angle with angle in image and car drifted angle
 			//update car drifted angle from mpu
@@ -431,12 +376,9 @@ int main(void)
 			//car heading angle from gyroscope
 			carHeadingAngle = carHeadingAngle + ( gyo[2] / countConstant);
 			if(carHeadingAngle > 180)
-			{
-				carHeadingAngle = carHeadingAngle - 360;
-			}else if(carHeadingAngle < -180)
-			{
-				carHeadingAngle = 360 + carHeadingAngle;
-			}
+			{	carHeadingAngle = carHeadingAngle - 360;	}
+			else if(carHeadingAngle < -180)
+			{	carHeadingAngle = 360 + carHeadingAngle;	}
 
 //			char buffer[50];
 //			sprintf(buffer, "%f\n", carHeadingAngle);
@@ -462,19 +404,9 @@ int main(void)
 					//calculate local angle
 					uint32_t hyp = distanceSquare(Car[0], Beacon);
 
-
-
-					if(hyp != 0)
+					if (hyp != 0)
 					{
-
-
-
-
-
-
-
-
-
+/*
 						//52, 33, 39, 39
 						//-----------obstacle detection
 						if (distanceSquare(Car[0], Beacon) < 256)
@@ -502,7 +434,7 @@ int main(void)
 							}
 						}else
 						{
-							//maybe go faster than lock servo
+								//maybe go faster than lock servo
 							motorL.SetPower(170);			//
 							motorR.SetPower(170);			//
 						}
@@ -514,16 +446,12 @@ int main(void)
 			//				servo.SetDegree(SERVO_CENTRE);
 							distanceForLockServo = 0;
 							//can set a faster speed
-							motorL.SetPower(170);
-							motorR.SetPower(170);
+								//maybe go faster than lock servo
+							motorL.SetPower(170);			//
+							motorR.SetPower(170);			//
 						}
 
-
-
-
-
-
-
+*/
 						if(dx == 0)
 						{
 							dy > 0? carAngleError = 0.0f : carAngleError = 179.99999999999f;
@@ -587,7 +515,7 @@ int main(void)
 				motorR.SetPower(0);
 			}
 
-			if (lockServo == false)
+			if (moveBack == false)
 			{
 				//control servo and motor
 				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKp);
