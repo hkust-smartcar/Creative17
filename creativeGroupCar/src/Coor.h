@@ -1,4 +1,3 @@
-
 #ifndef COOR_H
 #define COOR_H
 
