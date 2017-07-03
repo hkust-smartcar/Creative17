@@ -138,11 +138,12 @@ bool bluetoothListenerTwo(const Byte* data, const size_t size);
 
 Led* ledP[4];
 St7735r* lcdP;
-
 JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
 Mpu6050* mpuP;
+
+
 std::vector<Coor> Car;
 Coor Beacon;
 std::vector<Coor> Obstacle;
@@ -152,30 +153,36 @@ float distance = 0.0f;
 std::array<int32_t, 3> acc = {0, 0, 0};
 std::array<int32_t, 3> gyo = {0, 0, 0};
 std::vector<vec> accSample;
+
+//for car angle
 float carHeadingAngle;
 float carAngleError; //positive need to turn left, negative need to turn right
+
+//for receiving data form bluetooth
 std::string messageFromDrone;
 std::vector<int16_t> coorBuffer;
+
+//servo control
 float servoKp = 15;
 uint16_t servoOutput;
 
+//for ulrasonic sensor
 uint32_t timeForUltraL = 0;
 float rangeForUltraL = 0.0;
 uint32_t timeForUltraR = 0;
 float rangeForUltraR = 0.0;
 
+//for dogging obstacle
 int32_t distanceForLockServo = 0;
 uint8_t countForLockServoL = 0;
 uint8_t countForLockServoR = 0;
-
-bool startTheCarProcess = false;
-
 int32_t eReadingL = 0;
 int32_t eReadingR = 0;
 
 PID motorLControl;
 PID motorRControl;
 
+bool startTheCarProcess = false;
 bool programEnd = false;
 
 int main(void)
@@ -313,9 +320,9 @@ int main(void)
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
 	motorL.SetClockwise(true); // for left motor, true == forward
-//	motorL.SetPower(150);
+	motorL.SetPower(150);
 	motorR.SetClockwise(false); // for right motor, false == forward
-//	motorR.SetPower(150);
+	motorR.SetPower(150);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
