@@ -72,17 +72,17 @@ public:
 
 	void SoftReset();
 
-	const std::array<int32_t, 3>& GetMag() const
+	const std::array<int16_t, 3>& GetMag() const
 	{
 		return m_mag;
 	}
 
-	const std::array<int32_t, 3>& GetMagMin() const
+	const std::array<int16_t, 3>& GetMagMin() const
 	{
 		return m_mag_min;
 	}
 
-	const std::array<int32_t, 3>& GetMagMax() const
+	const std::array<int16_t, 3>& GetMagMax() const
 	{
 		return m_mag_max;
 	}
@@ -96,9 +96,9 @@ public:
 private:
 
 	I2cMaster* m_i2c;
-	std::array<int32_t, 3> m_mag;
-	std::array<int32_t, 3> m_mag_min;
-	std::array<int32_t, 3> m_mag_max;
+	std::array<int16_t, 3> m_mag;
+	std::array<int16_t, 3> m_mag_min;
+	std::array<int16_t, 3> m_mag_max;
 };
 
 }

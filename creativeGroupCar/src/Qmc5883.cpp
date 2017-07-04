@@ -28,9 +28,9 @@ namespace libsc
 namespace
 {
 
-QMC5883::I2cMaster::Config GetI2cConfig()
+Qmc5883::I2cMaster::Config GetI2cConfig()
 {
-	QMC5883::I2cMaster::Config config;
+	Qmc5883::I2cMaster::Config config;
 	config.scl_pin = LIBSC_QMC5883_SCL;
 	config.sda_pin = LIBSC_QMC5883_SDA;
 	config.baud_rate_khz = 400;
@@ -54,7 +54,7 @@ m_i2c(0)
 		m_i2c = config.i2c_master_ptr;
 	}
 
-	softReset();
+	SoftReset();
 
 	//define Set/Reset period
 	assert(m_i2c->SendByte(QMC5883_ADDR, 0x0B, 0x01));
@@ -95,7 +95,7 @@ bool Qmc5883::Update()
 	return true;
 }
 
-bool UpdateWithCalibration()
+bool Qmc5883::UpdateWithCalibration()
 {
 	Update();
 	for (int i = 0; i < 3; ++i)
@@ -107,7 +107,7 @@ bool UpdateWithCalibration()
 	}
 }
 
-void Qmc5883::softReset()
+void Qmc5883::SoftReset()
 {
 	assert(m_i2c->SendByte(QMC5883_ADDR, 0x0A, 0x80));
 	System::DelayUs(1);
@@ -118,11 +118,11 @@ std::array<int32_t, 3> Qmc5883::GetNormalizedMag() const
 	std::array<int32_t, 3> tempArray;
 	for (int i = 0; i < 3; ++i)
 	{
-		uint32_t maxMagnitude = (m_mag_max[i] - m_mag_min[i]) / 2;
-		uint32_t shitedCentre = (m_mag_max[i] + m_mag_min[i]) / 2;
+		int32_t maxMagnitude = (m_mag_max[i] - m_mag_min[i]) / 2;
+		int32_t shitedCentre = (m_mag_max[i] + m_mag_min[i]) / 2;
 
 		//the output will be from -10000 to 10000
-		tempArray[i] = 10000 * (m_mag - shitedCentre) / maxMagnitude;
+		tempArray[i] = 10000 * (m_mag[i] - shitedCentre) / maxMagnitude;
 	}
 
 	return tempArray;
