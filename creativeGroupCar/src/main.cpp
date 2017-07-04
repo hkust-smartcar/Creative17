@@ -130,7 +130,6 @@ bool bluetoothListenerTwo(const Byte* data, const size_t size);
 //void B1Listener(const uint8_t);
 //void B2Listener(const uint8_t);
 
-
 Led* ledP[4];
 St7735r* lcdP;
 
@@ -155,21 +154,27 @@ float carAngleError; //positive need to turn left, negative need to turn right
 std::string messageFromDrone;
 std::vector<int16_t> coorBuffer;
 
+bool startTheCarProcess = false;
+
 float servoKp = 20;
+//PID servoControl;
 uint16_t servoOutput;
-
-
 int32_t distanceForLockServo = 0;
 uint8_t countForLockServoL = 0;
 uint8_t countForLockServoR = 0;
 
-bool startTheCarProcess = false;
-
+float motorLKp = 1;
+float motorRKp = 1;
+//PID motorLControl;
+//PID motorRControl;
+int16_t Lspeed = 0;
+int16_t Rspeed = 0;
 int32_t eReadingL = 0;
 int32_t eReadingR = 0;
 
-PID motorLControl;
-PID motorRControl;
+PID motorLControl(motorLKp,0,0);
+PID motorRControl(motorRKp,0,0);
+PID servoControl(servoKp, 0, 0);
 
 bool programEnd = false;
 
@@ -178,6 +183,18 @@ uint16_t servoAngleSpecial = SERVO_CENTRE + 80;
 int main(void)
 {
 	System::Init();
+
+	//	--------------------------------motor
+		DirMotor::Config motor_Config;
+		motor_Config.id=0;
+		DirMotor motorL(motor_Config);
+		motorLP = &motorL;
+		motor_Config.id=1;
+		DirMotor motorR(motor_Config);
+		motorRP = &motorR;
+		Lspeed = 180;
+		Rspeed = 180;
+		motorSetPower(Lspeed, Rspeed);
 
 	//---------------------------------button
 	Button::Config cB1;
@@ -265,16 +282,6 @@ int main(void)
 	FutabaS3010 servo(servo_Config);
 	servo.SetDegree(SERVO_CENTRE);
 
-//	--------------------------------motor
-	DirMotor::Config motor_Config;
-	motor_Config.id=0;
-	DirMotor motorL(motor_Config);
-	motorLP = &motorL;
-	motor_Config.id=1;
-	DirMotor motorR(motor_Config);
-	motorRP = &motorR;
-	motorSetPower(180, 180);
-
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
 	enc1.id = 0;
@@ -303,6 +310,8 @@ int main(void)
 //		bluetoothP[0]->SendStr("g");
 //		System::DelayMs(20);
 //	}
+
+	// When Car is ready
 	ledP[2]->SetEnable(true);
 //	ledP[2]->SetEnable(false);
 	System::DelayMs(1500);
@@ -366,7 +375,9 @@ int main(void)
 				{
 					accEncR = 0;
 					accEncL = 0;
-					motorSetPower(170, 170);
+					Lspeed = 170;
+					Rspeed = 170;
+					motorSetPower(Lspeed, Rspeed);
 					moveBack = false;
 					moveForward = true;
 				}
@@ -383,6 +394,12 @@ int main(void)
 					accEncL = 0;
 					moveForward = false;
 				}
+			}
+			else
+			{
+				Lspeed = motorLControl.output(220, Lspeed);
+				Rspeed = motorRControl.output(220, Rspeed);
+				motorSetPower(Lspeed, Rspeed);
 			}
 //
 //			//calculate car beacon angle with angle in image and car drifted angle
@@ -493,6 +510,8 @@ int main(void)
 //			{
 //				//control servo and motor
 //				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKp);
+//			//	servoOutput = servoControl.output((SERVO_CENTRE + carAngleError), servo.GetDegree());
+
 //				if(servoOutput > SERVO_LEFT_LIMIT)
 //					servoOutput = SERVO_LEFT_LIMIT;
 //				else if(servoOutput < SERVO_RIGHT_LIMIT)
