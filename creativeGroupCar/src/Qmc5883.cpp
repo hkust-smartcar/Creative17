@@ -101,9 +101,13 @@ bool Qmc5883::UpdateWithCalibration()
 	for (int i = 0; i < 3; ++i)
 	{
 		if(m_mag[i] > m_mag_max[i])
+		{
 			m_mag_max[i] = m_mag[i];
+		}
 		else if (m_mag[i] < m_mag_min[i])
+		{
 			m_mag_min[i] = m_mag[i];
+		}
 	}
 }
 
@@ -121,11 +125,26 @@ std::array<int32_t, 3> Qmc5883::GetNormalizedMag() const
 		int32_t maxMagnitude = (m_mag_max[i] - m_mag_min[i]) / 2;
 		int32_t shitedCentre = (m_mag_max[i] + m_mag_min[i]) / 2;
 
+		int32_t tempTop = 10000 * (m_mag[i] - shitedCentre);
+		tempTop /= maxMagnitude;
 		//the output will be from -10000 to 10000
-		tempArray[i] = 10000 * (m_mag[i] - shitedCentre) / maxMagnitude;
+		tempArray[i] = tempTop;
 	}
 
 	return tempArray;
+}
+
+
+void Qmc5883::SetMagMin(const std::array<int16_t, 3>& min)
+{
+	for (int i = 0; i < 3; ++i)
+		m_mag_min[i] = min[i];
+}
+
+void Qmc5883::SetMagMax(const std::array<int16_t, 3>& max)
+{
+	for (int i = 0; i < 3; ++i)
+		m_mag_max[i] = max[i];
 }
 
 #else
