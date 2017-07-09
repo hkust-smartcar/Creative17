@@ -77,7 +77,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H]);
 
 void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon);
 
-float angleTracking(Coor pt1, Coor pt2);
+float angleTracking(Coor carT, Coor carH);
 
 void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle);
 
@@ -811,11 +811,11 @@ bool switchBeacon(Coor bn, Coor Cr)
 	{ return false;	}
 }
 
-float angleTracking(Coor pt1, Coor pt2)
+float angleTracking(Coor carT, Coor carH)
 {
 	// -180 to 180 deg
-	int deltaX = pt2.x - pt1.x;
-	int deltaY = pt2.y - pt1.y;
+	int deltaX = carH.x - carT.x;
+	int deltaY = carH.y - carT.y;
 
 	if (deltaX != 0)
 	{
