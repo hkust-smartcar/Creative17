@@ -77,7 +77,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H]);
 
 void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon);
 
-//float angleTracking(Coor beacon1, Coor beacon2);
+float angleTracking(Coor pt1, Coor pt2);
 
 void sendSignal(const Coor& b, const Coor& c);
 
@@ -107,8 +107,6 @@ Joystick* joystickP;
 LcdTypewriter* writerP;
 bool runFlag = 0;
 uint8_t prevCentreCount = 0;
-
-Coor beacon_old;
 
 bool startTheDroneProcess = false;
 
@@ -161,7 +159,8 @@ int main(void)
 	vector<Coor> centre;
 //	vector<Coor> preCentre;		//assume size of two
 	Coor beacon;
-	Coor car;
+	Coor carH;
+	Coor carT;
 
 	//initialize camera related arrays and vectors
 	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
@@ -227,24 +226,24 @@ int main(void)
 			sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
 			writerP->WriteString(buffer);
 #endif
-
+/*
 			//indicate the centre of white regions with red little square
 			if(centre.size()>0)
 			{
 				for(uint8_t a = 0; a < centre.size(); a++)
 				{
 					if(a>0)
-						assert(centre[a]!=centre[a-1]);
+					assert(centre[a]!=centre[a-1]);
 #ifdef ENABLE_LCD
 					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
 					lcdP->FillColor(St7735r::kRed);
 #endif
 				}
 			}
-
+*/
 //			//update preCentre by using data in centre
-//			determinePts(centre, beacon, car);
-
+			determinePts(centre, carH, carT, beacon);
+/*
 #define FAR_DISTANCE 10
 			if(beaconCarVeryClose == true && centre.size() == 0)
 			{
@@ -336,7 +335,7 @@ int main(void)
 
 			}
 
-
+*/
 			// //signal from the car to reset the data in the drone
 			// if(startTheDroneProcess)
 			// {
@@ -346,21 +345,23 @@ int main(void)
 			// }
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
-			sendSignal(beacon, car);
+			sendSignal(beacon, carH);
 
 
 #ifdef ENABLE_LCD
 			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
+			lcdP->FillColor(St7735r::kPurple);
+			lcdP->SetRegion(Lcd::Rect(3 + carH.x, 2 + carH.y, 3, 3));
 			lcdP->FillColor(St7735r::kBlue);
-			lcdP->SetRegion(Lcd::Rect(3 + car.x, 2 + car.y, 3, 3));
-			lcdP->FillColor(St7735r::kRed);
+			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
+			lcdP->FillColor(St7735r::kCyan);
 
 			lcdP->SetRegion(Lcd::Rect(0, 120, 128, 50));
-			sprintf(buffer, "beacon B %d %d", beacon.x, beacon.y);
+			sprintf(buffer, "beacon V %d %d", beacon.x, beacon.y);
 			writerP->WriteString(buffer);
 
 			lcdP->SetRegion(Lcd::Rect(0, 140, 128, 50));
-			sprintf(buffer, "car G %d %d", car.x, car.y);
+			sprintf(buffer, "carH B %d %d", carH.x, carH.y);
 			writerP->WriteString(buffer);
 #endif
 
@@ -449,13 +450,14 @@ void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 			des[j][i] = 1;
 }
 
+/*
 void resolveDistortion(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 {
-/*	float kA = -0.000077;
+	float kA = -0.000077;
 	float kB = 0.000267;	//P
 	float kC = 0;
 	float kD = 1 - kA - kB - kC;
-*/
+
 	float kP = 0.035;
 	float kZ = 1;
 
@@ -517,7 +519,7 @@ void resolveDistortion(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 		}
 	}
 */
-}
+//}
 
 
 void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
@@ -726,6 +728,81 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 
 void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 {
+	uint8_t cCount = pts.size();
+	if (cCount == 3)
+	{
+		uint16_t d1 = squaredDistance(pts[0], pts[1]);
+		uint16_t d2 = squaredDistance(pts[0], pts[2]);
+		uint16_t d3 = squaredDistance(pts[1], pts[2]);
+
+		uint16_t shortestD = d1;			// pt 0/1 are car
+		if (d2 < d1)
+		{	shortestD = d2;	}				// pt 0/2 are car
+		if ((d3 < d1) && (d3 < d2))
+		{	shortestD = d3;	}				// pt 1/2 are car
+
+		if (shortestD == d1)
+		{
+			float angle1 = angleTracking(carT, pts[0]);
+			float angle2 = angleTracking(carT, pts[1]);
+			if (angle1 < 0.0)
+			{	angle1 = -angle1;	}
+			if (angle2 < 0.0)
+			{	angle2 = -angle2;	}
+			if (angle1 < angle2)
+			{
+				carT = pts[0];
+				carH = pts[1];
+			}
+			else
+			{
+				carH = pts[0];
+				carT = pts[1];
+			}
+			beacon = pts[2];
+		}
+		else if (shortestD == d2)
+		{
+			float angle1 = angleTracking(carT, pts[0]);
+			float angle2 = angleTracking(carT, pts[2]);
+			if (angle1 < 0.0)
+			{	angle1 = -angle1;	}
+			if (angle2 < 0.0)
+			{	angle2 = -angle2;	}
+			if (angle1 < angle2)
+			{
+				carT = pts[0];
+				carH = pts[2];
+			}
+			else
+			{
+				carH = pts[0];
+				carT = pts[2];
+			}
+			beacon = pts[1];
+		}
+		else //if (shortestD == d3)
+		{
+			float angle1 = angleTracking(carT, pts[1]);
+			float angle2 = angleTracking(carT, pts[2]);
+			if (angle1 < 0.0)
+			{	angle1 = -angle1;	}
+			if (angle2 < 0.0)
+			{	angle2 = -angle2;	}
+			if (angle1 < angle2)
+			{
+				carT = pts[1];
+				carH = pts[2];
+			}
+			else
+			{
+				carH = pts[1];
+				carT = pts[2];
+			}
+			beacon = pts[0];
+		}
+	}
+	/*
 //	uint16_t cCount = pts.size();
 	int tempResultH = 0;
 	int tempResultT = 0;
@@ -770,6 +847,7 @@ void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 		beacon.x = pts[1].x;
 		beacon.y = pts[1].y;
 	}
+	*/
 }
 
 
@@ -780,12 +858,12 @@ bool switchBeacon(Coor bn, Coor Cr)
 	else
 	{ return false;	}
 }
-/*
-float angleTracking(Coor beacon1, Coor beacon2)
+
+float angleTracking(Coor pt1, Coor pt2)
 {
 	// -180 to 180 deg
-	int deltaX = beacon2.x - beacon1.x;
-	int deltaY = beacon2.y - beacon1.y;
+	int deltaX = pt2.x - pt1.x;
+	int deltaY = pt2.y - pt1.y;
 
 	if ((deltaX != 0) && (deltaY != 0))
 	{
@@ -810,7 +888,7 @@ float angleTracking(Coor beacon1, Coor beacon2)
 	else
 	{	return 0;	}
 }
-*/
+
 void sendSignal(const Coor& b, const Coor& c)
 {
 	string tempMessage;
