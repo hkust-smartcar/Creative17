@@ -79,7 +79,9 @@ void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon);
 
 float angleTracking(Coor pt1, Coor pt2);
 
-void sendSignal(const Coor& b, const Coor& c);
+void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle);
+
+void sendSignal(const Coor& b, const Coor& cH, const Coor& cT);
 
 bool switchBeacon(Coor bn, Coor Cr);
 
@@ -203,10 +205,10 @@ int main(void)
 			imageConversion(boolImage, cameraBuffer);
 
 			//filtering
-			meanFilter(boolImageFiltered, boolImage);
+	//		meanFilter(boolImageFiltered, boolImage);
 
 			//formatting to Byte from
-			imageConversionBack(cameraBuffer, boolImageFiltered);
+		//	imageConversionBack(cameraBuffer, boolImageFiltered);
 
 #ifdef ENABLE_LCD
 			//print camera image easy version
@@ -217,7 +219,7 @@ int main(void)
 #endif
 
 			//find centre of white regions
-			centreFinder(centre, boolImageFiltered);
+			centreFinder(centre, boolImage); // boolImageFiltered
 
 #ifdef ENABLE_LCD
 			//for print no. of centre out
@@ -345,7 +347,7 @@ int main(void)
 			// }
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
-			sendSignal(beacon, carH);
+			sendSignal(beacon, carH, carT);
 
 
 #ifdef ENABLE_LCD
@@ -526,7 +528,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 {
 	uint8_t distriX[CAM_W];
 	uint8_t distriY[CAM_H];
-	//init
+
 	for(uint8_t i = 0; i < CAM_W; i++)
 		distriX[i] = 0;
 	for(uint8_t i = 0; i < CAM_H; i++)
@@ -722,7 +724,6 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 			}
 		}
 	}//end of centrefinding for loop
-
 }
 
 
@@ -734,122 +735,73 @@ void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 		uint16_t d1 = squaredDistance(pts[0], pts[1]);
 		uint16_t d2 = squaredDistance(pts[0], pts[2]);
 		uint16_t d3 = squaredDistance(pts[1], pts[2]);
+		float originalAngle = angleTracking(carT, carH);
 
 		uint16_t shortestD = d1;			// pt 0/1 are car
-		if (d2 < d1)
-		{	shortestD = d2;	}				// pt 0/2 are car
-		if ((d3 < d1) && (d3 < d2))
-		{	shortestD = d3;	}				// pt 1/2 are car
+
+		if(shortestD > d2)
+		{	shortestD = d2;	}
+		if(shortestD > d3)
+		{	shortestD = d3;	}
 
 		if (shortestD == d1)
 		{
-			float angle1 = angleTracking(carT, pts[0]);
-			float angle2 = angleTracking(carT, pts[1]);
-			if (angle1 < 0.0)
-			{	angle1 = -angle1;	}
-			if (angle2 < 0.0)
-			{	angle2 = -angle2;	}
-			if (angle1 < angle2)
-			{
-				carT = pts[0];
-				carH = pts[1];
-			}
-			else
-			{
-				carH = pts[0];
-				carT = pts[1];
-			}
+			assignDirection(pts[0], pts[1], carH, carT, originalAngle);
 			beacon = pts[2];
 		}
+
 		else if (shortestD == d2)
 		{
-			float angle1 = angleTracking(carT, pts[0]);
-			float angle2 = angleTracking(carT, pts[2]);
-			if (angle1 < 0.0)
-			{	angle1 = -angle1;	}
-			if (angle2 < 0.0)
-			{	angle2 = -angle2;	}
-			if (angle1 < angle2)
-			{
-				carT = pts[0];
-				carH = pts[2];
-			}
-			else
-			{
-				carH = pts[0];
-				carT = pts[2];
-			}
+			assignDirection(pts[0], pts[2], carH, carT, originalAngle);
 			beacon = pts[1];
 		}
-		else //if (shortestD == d3)
+		else
 		{
-			float angle1 = angleTracking(carT, pts[1]);
-			float angle2 = angleTracking(carT, pts[2]);
-			if (angle1 < 0.0)
-			{	angle1 = -angle1;	}
-			if (angle2 < 0.0)
-			{	angle2 = -angle2;	}
-			if (angle1 < angle2)
-			{
-				carT = pts[1];
-				carH = pts[2];
-			}
-			else
-			{
-				carH = pts[1];
-				carT = pts[2];
-			}
+			assignDirection(pts[1], pts[2], carH, carT, originalAngle);
 			beacon = pts[0];
 		}
 	}
-	/*
-//	uint16_t cCount = pts.size();
-	int tempResultH = 0;
-	int tempResultT = 0;
-	int tempIndexH = 0;
-	int tempIndexT = 0;
-	int smallestDHead = squaredDistance(carH, pts[0]);
-	int smallestDTail = squaredDistance(carT, pts[0]);
-
-	//	Compare Head & Tail Coor with all pts
-	for (int i = 1; i < 3; i++)
-	{
-		tempResultH = squaredDistance(carH, pts[i]);
-		if (tempResultH < smallestDHead)
-		{
-			smallestDHead = tempResultH;
-			tempIndexH = i;
-		}
-		tempResultT = squaredDistance(carT, pts[i]);
-		if (tempResultT < smallestDTail)
-		{
-			smallestDTail = tempResultT;
-			tempIndexT = i;
-		}
-	}
-	carH.x = pts[tempIndexH].x;
-	carH.y = pts[tempIndexH].y;
-	carT.x = pts[tempIndexT].x;
-	carT.y = pts[tempIndexT].y;
-
-	if ((tempIndexH < 2) && (tempIndexT < 2))
-	{
-		beacon.x = pts[2].x;
-		beacon.y = pts[2].y;
-	}
-	else if ((tempIndexH > 0) && (tempIndexT > 0))
-	{
-		beacon.x = pts[0].x;
-		beacon.y = pts[0].y;
-	}
-	else
-	{
-		beacon.x = pts[1].x;
-		beacon.y = pts[1].y;
-	}
-	*/
 }
 
+void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle)
+{
+	float angle1 = angleTracking(newT, newH);
+	float angle2 = angleTracking(newH, newT);
+	bool swapIsTrue = false;
+
+	if(abs(angle1) > abs(angle2))
+	{
+		float tempAngle = angle1;
+		angle1 = angle2;
+		angle2 = tempAngle;
+		swapIsTrue = true;
+	}
+
+	float angleDiff = originalAngle - angle1;
+	if(-90 < angleDiff && angleDiff < 90)
+	{
+		if(swapIsTrue)
+		{
+			carT = newH;
+			carH = newT;
+		}else
+		{
+			carT = newT;
+			carH = newH;
+		}
+	}else
+	{
+		if(swapIsTrue)
+		{
+			carT = newT;
+			carH = newH;
+		}else
+		{
+			carT = newH;
+			carH = newT;
+		}
+	}
+}
 
 bool switchBeacon(Coor bn, Coor Cr)
 {
@@ -865,31 +817,36 @@ float angleTracking(Coor pt1, Coor pt2)
 	int deltaX = pt2.x - pt1.x;
 	int deltaY = pt2.y - pt1.y;
 
-	if ((deltaX != 0) && (deltaY != 0))
+	if (deltaX != 0)
 	{
 		// The degree that the image has rotated
 		// rad -> deg
-		float angle = 180 * Math::ArcTan(abs(deltaY)/abs(deltaX))/ 3.141593;
+		float angle = 180 * Math::ArcTan(abs(deltaY)/abs(deltaX))/ 3.141592654;
 		if (deltaX > 0)
 		{
 			if (deltaY > 0)
-			{	return (90 - angle);	}
+			{	return (-90 - angle);	}
 			else
-			{	return (90 + angle);	}
+			{	return (-90 + angle);	}
 		}
 		else
 		{
 			if (deltaY > 0)
-			{	return (-90 + angle);	}
+			{	return (90 + angle);	}
 			else
-			{	return (-90 - angle);	}
+			{	return (90 - angle);	}
 		}
 	}
 	else
-	{	return 0;	}
+	{
+		if (deltaY < 0)
+		{	return 0;	}
+		else if(deltaY > 0)
+		{	return 180;	}
+	}
 }
 
-void sendSignal(const Coor& b, const Coor& c)
+void sendSignal(const Coor& b, const Coor& cH, const Coor& cT)
 {
 	string tempMessage;
 	ledP[0]->Switch();
@@ -927,39 +884,70 @@ void sendSignal(const Coor& b, const Coor& c)
 
 		tempMessage += buffer;
 	}
-	if(c == Coor())
+	if(cH == Coor())
 	{
 		tempMessage += "-01,";
 		tempMessage += "-01,";
 	}else
 	{
-		if(c.x <= 9)
+		if(cH.x <= 9)
 		{
-			sprintf(buffer, "00%d,", c.x);
-		}else if(c.x <= 99)
+			sprintf(buffer, "00%d,", cH.x);
+		}else if(cH.x <= 99)
 		{
-			sprintf(buffer, "0%d,", c.x);
+			sprintf(buffer, "0%d,", cH.x);
 		}else
 		{
-			sprintf(buffer, "%d,", c.x);
+			sprintf(buffer, "%d,", cH.x);
 		}
 
 		tempMessage += buffer;
 
-		if(c.y <= 9)
+		if(cH.y <= 9)
 		{
-			sprintf(buffer, "00%d,", c.y);
-		}else if(c.y <= 99)
+			sprintf(buffer, "00%d,", cH.y);
+		}else if(cH.y <= 99)
 		{
-			sprintf(buffer, "0%d,", c.y);
+			sprintf(buffer, "0%d,", cH.y);
 		}else
 		{
-			sprintf(buffer, "%d,", c.y);
+			sprintf(buffer, "%d,", cH.y);
 		}
 
 		tempMessage += buffer;
 	}
+	if(cT == Coor())
+		{
+			tempMessage += "-01,";
+			tempMessage += "-01,";
+		}else
+		{
+			if(cT.x <= 9)
+			{
+				sprintf(buffer, "00%d,", cT.x);
+			}else if(cT.x <= 99)
+			{
+				sprintf(buffer, "0%d,", cT.x);
+			}else
+			{
+				sprintf(buffer, "%d,", cT.x);
+			}
 
+			tempMessage += buffer;
+
+			if(cT.y <= 9)
+			{
+				sprintf(buffer, "00%d,", cT.y);
+			}else if(cT.y <= 99)
+			{
+				sprintf(buffer, "0%d,", cT.y);
+			}else
+			{
+				sprintf(buffer, "%d,", cT.y);
+			}
+
+			tempMessage += buffer;
+		}
 	tempMessage += 'e';
 	bluetoothP->SendStr(tempMessage);
 }
