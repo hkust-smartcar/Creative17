@@ -60,25 +60,31 @@ using namespace libutil;
 
 //
 
-#define CAM_W 80
-#define CAM_H 60
+#define CAM_W 240
+#define CAM_H 180
+#define CAM_W2 80
+#define CAM_H2 60
+
 uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
 #define ENABLE_LCD
 
 #define DISTANCE_CHECK 30
-
-void getWorldBit(bool destImage[CAM_W][CAM_H], bool rawImage[CAM_W][CAM_H])
+/*
+void getWorldBit(bool destImage[CAM_W2][CAM_H2], bool rawImage[CAM_W][CAM_H])
 {
-	for (int y = 0; y <CAM_H; y++)
+	for (int y = 0; y <CAM_H2; y++)
 	{
-		for (int x = 0; x <CAM_W; x++)
+		for (int x = 0; x <CAM_W2; x++)
 		{	destImage[x][y] = rawImage[transformMatrix[x][y][0]][transformMatrix[x][y][1]];	}
 	}
 }
 
+*/
+
 void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8]);
-void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H]);
+void imageConversionBack(Byte des[CAM_W2 * CAM_H2 / 8], bool src[CAM_W2][CAM_H2]);
+//void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H]);
 
 void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H]);
 void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H]);
@@ -89,13 +95,13 @@ float angleTracking(Coor carT, Coor carH);
 
 //void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle);
 
-uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H]);
-bool compareSize(Coor& newH, Coor& newT, bool inputImage[CAM_W][CAM_H]);
-void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool inputImage[CAM_W][CAM_H]);
+//uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H]);
+//bool compareSize(Coor& newH, Coor& newT, bool inputImage[CAM_W][CAM_H]);
+//void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool inputImage[CAM_W][CAM_H]);
 
 void sendSignal(const Coor& b, const Coor& cH, const Coor& cT);
 
-bool switchBeacon(Coor bn, Coor Cr);
+//bool switchBeacon(Coor bn, Coor Cr);
 uint32_t squaredDistance(const Coor& b, const Coor& c);
 
 //void resolveDistortion(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H]);
@@ -121,8 +127,23 @@ LcdTypewriter* writerP;
 bool runFlag = 0;
 uint8_t prevCentreCount = 0;
 
-Byte cameraBuffer[CAM_W * CAM_H / 8];
-Byte cameraBuffer2[CAM_W * CAM_H / 8];
+//Byte cameraBuffer[CAM_W * CAM_H / 8];
+Byte cameraBuffer2[CAM_W2 * CAM_H2 / 8];
+const Byte* cameraBuffer;
+
+//get bit value from camerabuf using camera coordinate system
+bool getBit(int i_x, int i_y){
+	if (i_x<=0 || i_x>CAM_W-1 || i_y <= 0 || i_y > CAM_H-1) return -1;
+	return cameraBuffer[i_y*CAM_W/8 + i_x/8] >> (7 - (i_x%8)) & 1;
+}
+
+//get bit using world coordinate system
+bool getWorldBit(int w_x, int w_y){
+	int i_x,i_y;
+	i_x = transformMatrix[w_x][w_y][0];
+	i_y = transformMatrix[w_x][w_y][1];
+	return getBit(i_x,i_y);
+}
 
 bool startTheDroneProcess = false;
 
@@ -172,20 +193,18 @@ int main(void)
 //	Byte cameraBuffer[CAM_W * CAM_H / 8];
 	bool boolImage[CAM_W][CAM_H];
 	bool boolImageFiltered[CAM_W][CAM_H];
-	bool boolImageWorld[CAM_W][CAM_H];
+	bool boolImageWorld[CAM_W2][CAM_H2];
 	vector<Coor> centre;
 
 	Coor beacon;
 	Coor carH;
 	Coor carT;
 
-	//initialize camera related arrays and vectors
+/*	//initialize camera related arrays and vectors
 	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
 	for(int i = 0; i < CAM_W; i++)
 		memset(boolImage + i, 0, CAM_H);
-//	preCentre.push_back(Coor());
-//	preCentre.push_back(Coor());
-
+*/
 	cameraP->Start();
 
 	//--------------------------------JOYSTICK
@@ -207,27 +226,26 @@ int main(void)
 			lastTime = System::Time();
 
 			//update camera image
-			memcpy(cameraBuffer, cameraP->LockBuffer(), CAM_W * CAM_H / 8);
+		//	memcpy(cameraBuffer, cameraP->LockBuffer(), CAM_W * CAM_H / 8);
+			cameraBuffer = cameraP->LockBuffer();
+
 			cameraP->UnlockBuffer();
 
-//			//print camera image easy version
-//			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
-//			//0 = white ************** in camera image
-//			//White = 0xFFFF = white in real
-//			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
-
 			//formatting to boolean form
-			imageConversion(boolImage, cameraBuffer);
-
-		//	getWorldBit(boolImageWorld, boolImage);
-
+			for (int j = 0; j < CAM_H2; j++)
+			{
+				for (int i = 0; i < CAM_W2; i++)
+				{
+					boolImageWorld[i][j] = getWorldBit(i,j);
+				}
+			}
 			//filtering
 		//	meanFilter(boolImageFiltered, boolImage);
 
 			//formatting to Byte from
 	//		imageConversionBack(cameraBuffer, boolImage);
-	//		imageConversionBack(cameraBuffer2, boolImageWorld);
-
+			imageConversionBack(cameraBuffer2, boolImageWorld);
+/*
 #ifdef ENABLE_LCD
 			//print camera image easy version
 			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
@@ -235,20 +253,21 @@ int main(void)
 			//White = 0xFFFF = white in real
 			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
 #endif
-/*
-#ifdef ENABLE_LCD
-			//print camera image easy version
-			lcdP->SetRegion(Lcd::Rect(3, 5+CAM_H, CAM_W, CAM_H));
-			//0 = white ************** in camera image
-			//White = 0xFFFF = white in real
-			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer2, CAM_W * CAM_H);
-#endif
-
 */
 
-			//find centre of white regions
-			centreFinder(centre, boolImage); // boolImageFiltered
+#ifdef	ENABLE_LCD
+			//print camera image easy version
+			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W2, CAM_H2));
+			//0 = white ************** in camera image
+			//White = 0xFFFF = white in real
+			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer2, CAM_W2 * CAM_H2);
+#endif
 
+
+			//find centre of white regions
+//			centreFinder(centre, boolImage); // boolImageFiltered
+
+			/*
 #ifdef ENABLE_LCD
 			//for print no. of centre out
 			lcdP->SetRegion(Lcd::Rect(0,100,128,50));
@@ -264,16 +283,16 @@ int main(void)
 				{
 					if(a>0)
 					assert(centre[a]!=centre[a-1]);
-/*#ifdef ENABLE_LCD
+*//*#ifdef ENABLE_LCD
 					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
 					lcdP->FillColor(St7735r::kRed);
 #endif*/
-				}
-			}
+//				}
+//			}
 
 //			//update preCentre by using data in centre
 		//	determinePts(centre, carH, carT, beacon);
-				determineCar(centre, carH, carT, beacon, boolImage);
+//				determineCar(centre, carH, carT, beacon, boolImage);
 			// //signal from the car to reset the data in the drone
 			// if(startTheDroneProcess)
 			// {
@@ -283,7 +302,7 @@ int main(void)
 			// }
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
-			sendSignal(beacon, carH, carT);
+/*			sendSignal(beacon, carH, carT);
 
 
 #ifdef ENABLE_LCD
@@ -304,7 +323,7 @@ int main(void)
 #endif
 
 			centre.clear();
-
+*/
 		}//end if for checking time
 
 	}//end while loop
@@ -318,7 +337,7 @@ void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8])
 			for(uint8_t k = 0; k < 8; k++)
 				des[j * 8 + k][i] = ( src[i * (CAM_W / 8) + j] >> (7 - k) ) & 1;
 }
-
+/*
 void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H])
 {
 	for(uint16_t i = 0; i < CAM_H * CAM_W / 8; i++)
@@ -328,7 +347,16 @@ void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H])
 		for(uint16_t j = 0; j < CAM_W; j++)
 			des[ (i * CAM_W + j) / 8 ] = ( src[j][i] << (7 - j % 8) ) | des[(i * CAM_W + j) / 8];
 }
+*/
+void imageConversionBack(Byte des[CAM_W2 * CAM_H2 / 8], bool src[CAM_W2][CAM_H2])
+{
+	for(uint16_t i = 0; i < CAM_H2 * CAM_W2 / 8; i++)
+		des[i] = 0;
 
+	for(uint16_t i = 0; i < CAM_H2; i++)
+		for(uint16_t j = 0; j < CAM_W2; j++)
+			des[ (i * CAM_W2 + j) / 8 ] = ( src[j][i] << (7 - j % 8) ) | des[(i * CAM_W2 + j) / 8];
+}
 void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 {
 	//init a sum array
@@ -395,16 +423,12 @@ void resolveDistortion(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 	float kB = 0.000267;	//P
 	float kC = 0;
 	float kD = 1 - kA - kB - kC;
-
 	float kP = 0.035;
 	float kZ = 1;
-
 //	uint8_t radius = CAM_H/2;
 	uint8_t centreW = CAM_W/2;
 	uint8_t centreH = CAM_H/2;
-
 	double corrRadius = (sqrt(CAM_W * CAM_W + CAM_H * CAM_H))/kP;
-
 	uint8_t newX = 0;
 	uint8_t newY = 0;
 	double dist = 0;
@@ -412,27 +436,22 @@ void resolveDistortion(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 	double kF = 0;
 	uint8_t srcX = 0;
 	uint8_t srcY = 0;
-
 	for (int x = 0; x < CAM_W; x++)
 	{
 		newX = x-centreW;
 		for (int y = 0; y < CAM_H; y++)
 		{
 			newY = y-centreH;
-
 			dist = sqrt(newX * newX + newY * newY);
 			rate = dist/corrRadius;
-
 			if (rate == 0.0)
 			{	kF = 1;	}
 			else { kF = (atan(rate))/rate;	}
-
 			srcX = (uint8_t)(centreW + kF * newX * kZ);
 			srcY = (uint8_t)(centreH + kF * newY * kZ);
 			des[x][y] = in[srcX][srcY];
 		}
 	}
-
 /*
 	for (int x = 0; x < CAM_W; x++)
 	{
@@ -440,16 +459,13 @@ void resolveDistortion(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 		{
 			double deltaX = (x - centreW) /radius;
 			double deltaY = (y - centreH) /radius;
-
 			double destR = Math::Sqrt2(deltaX * deltaX + deltaY * deltaY);
 			double srcR = (kA * destR * destR * destR + kB * destR * destR + kC * destR + kD) * destR;
 			double kF = destR/srcR;
 			if (kF < 0)
 			{	kF = -kF;	}
-
 			uint8_t srcX = (uint8_t)(centreW + (deltaX * kF * radius));
 			uint8_t srcY = (uint8_t)(centreH + (deltaY * kF * radius));
-
 			if ((srcX > 0) && (srcY > 0) && (srcX < CAM_W) && (srcY < CAM_H))
 			{
 				des[x][y] = in[srcX][srcY];
@@ -661,7 +677,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 		}
 	}//end of centrefinding for loop
 }
-
+/*
 uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H])
 {
 	uint8_t xCount = 0;
@@ -834,83 +850,6 @@ void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool 
 		}
 	}
 }
-/*
-void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
-{
-	uint8_t cCount = pts.size();
-	if (cCount == 3)
-	{
-		uint16_t d1 = squaredDistance(pts[0], pts[1]);
-		uint16_t d2 = squaredDistance(pts[0], pts[2]);
-		uint16_t d3 = squaredDistance(pts[1], pts[2]);
-		float originalAngle = angleTracking(carT, carH);
-		uint16_t shortestD = d1;			// pt 0/1 are car
-
-		if(shortestD > d2)
-		{	shortestD = d2;	}				// pt 0/2 are car
-		if(shortestD > d3)
-		{	shortestD = d3;	}				// pt 1/2 are car
-
-		if (shortestD == d1)
-		{
-			assignDirection(pts[0], pts[1], carH, carT, originalAngle);
-			beacon = pts[2];
-		}
-
-		else if (shortestD == d2)
-		{
-			assignDirection(pts[0], pts[2], carH, carT, originalAngle);
-			beacon = pts[1];
-		}
-		else
-		{
-			assignDirection(pts[1], pts[2], carH, carT, originalAngle);
-			beacon = pts[0];
-		}
-	}
-}
-
-void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle)
-{
-	float angle1 = angleTracking(newT, newH);
-	float angle2 = angleTracking(newH, newT);
-	bool swapIsTrue = false;
-
-	if(abs(angle1) > abs(angle2))
-	{
-		float tempAngle = angle1;
-		angle1 = angle2;
-		angle2 = tempAngle;
-		swapIsTrue = true;
-	}
-
-	float angleDiff = originalAngle - angle1;
-	if(-90 < angleDiff && angleDiff < 90)
-	{
-		if(swapIsTrue)
-		{
-			carT = newH;
-			carH = newT;
-		}else
-		{
-			carT = newT;
-			carH = newH;
-		}
-	}else
-	{
-		if(swapIsTrue)
-		{
-			carT = newT;
-			carH = newH;
-		}else
-		{
-			carT = newH;
-			carH = newT;
-		}
-	}
-}
-*/
-
 
 bool switchBeacon(Coor bn, Coor Cr)
 {
@@ -919,7 +858,7 @@ bool switchBeacon(Coor bn, Coor Cr)
 	else
 	{ return false;	}
 }
-
+*/
 float angleTracking(Coor carT, Coor carH)
 {
 	// -180 to 180 deg, 180 for LHS/ -180 for RHS
