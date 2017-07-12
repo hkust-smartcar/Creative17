@@ -6,14 +6,14 @@
 
 struct Coor
 {
-	int8_t x;
-	int8_t y;
+	int16_t x;
+	int16_t y;
 
 	Coor():x(-1), y(-1)
 	{
 	}
 
-	Coor(const int8_t& X, const int8_t& Y):x(X), y(Y)
+	Coor(const int16_t& X, const int16_t& Y):x(X), y(Y)
 	{
 	}
 

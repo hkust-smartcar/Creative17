@@ -63,7 +63,7 @@ using namespace libutil;
 #define CAM_H 60
 uint8_t MEAN_FILTER_WINDOW_SIZE = 1;	//window size should be odd
 
-//#define ENABLE_LCD
+#define ENABLE_LCD
 
 #define DRONE_ONE
 
@@ -85,12 +85,16 @@ void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H]);
 
 void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H]);
 
-void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car);
+void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon);
 
-void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly);
+float angleTracking(Coor carT, Coor carH);
+
+void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle);
 
 //put centre in for convenience of DRONE TWO
-void sendSignal(const vector<Coor>& cen);
+void sendSignal(const Coor& b, const Coor& cH, const Coor& cT);
+
+void appendSingal(string& singal, const Coor& coordinate);
 
 bool switchBeacon(Coor bn, Coor Cr);
 
@@ -122,16 +126,11 @@ LcdTypewriter* writerP;
 bool runFlag = 0;
 uint8_t prevCentreCount = 0;
 
-Coor beacon_old;
-
 bool startTheDroneProcess = false;
 
 bool fakeBeacon = false;
 bool beaconCarVeryClose = false;
 
-
-Coor car;
-Coor beacon;
 bool startFlag = false;
 string messageFromDrone;
 vector<int16_t> coorBuffer;
@@ -181,6 +180,9 @@ int main(void)
 	bool boolImageFiltered[CAM_W][CAM_H];
 	vector<Coor> centre;
 //	vector<Coor> preCentre;		//assume size of two
+	Coor beacon;
+	Coor carH;
+	Coor carT;
 
 	//initialize camera related arrays and vectors
 	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
@@ -196,9 +198,12 @@ int main(void)
 
 //	while(!startTheDroneProcess)
 //	{
-//		System::DelayMs(5);
+//		ledP[2]->Switch();
+//		System::DelayMs(20);
 //	}
-//
+
+	ledP[2]->SetEnable(false);
+
 //	//spare for next reset
 //	startTheDroneProcess = false;
 
@@ -213,20 +218,20 @@ int main(void)
 			memcpy(cameraBuffer, cameraP->LockBuffer(), CAM_W * CAM_H / 8);
 			cameraP->UnlockBuffer();
 
-//			//print camera image easy version
-//			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
-//			//0 = white ************** in camera image
-//			//White = 0xFFFF = white in real
-//			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
+			//print camera image easy version
+			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
+			//0 = white ************** in camera image
+			//White = 0xFFFF = white in real
+			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
 
 			//formatting to boolean form
 			imageConversion(boolImage, cameraBuffer);
 
-			//filtering
-			meanFilter(boolImageFiltered, boolImage);
+//			//filtering
+//			meanFilter(boolImageFiltered, boolImage);
 
-			//formatting to Byte from
-			imageConversionBack(cameraBuffer, boolImageFiltered);
+//			//formatting to Byte from
+//			imageConversionBack(cameraBuffer, boolImageFiltered);
 
 #ifdef ENABLE_LCD
 			//print camera image easy version
@@ -234,10 +239,10 @@ int main(void)
 			//0 = white ************** in camera image
 			//White = 0xFFFF = white in real
 			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
-#endif
+#endif //end of ENABLE_LCD
 
 			//find centre of white regions
-			centreFinder(centre, boolImageFiltered);
+			centreFinder(centre, boolImage);
 
 #ifdef ENABLE_LCD
 			//for print no. of centre out
@@ -245,7 +250,7 @@ int main(void)
 			char buffer[50];
 			sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
 			writerP->WriteString(buffer);
-#endif
+#endif //end of ENABLE_LCD
 
 			//indicate the centre of white regions with red little square
 			if(centre.size()>0)
@@ -257,104 +262,104 @@ int main(void)
 #ifdef ENABLE_LCD
 					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
 					lcdP->FillColor(St7735r::kRed);
-#endif
+#endif //end of ENABLE_LCD
 				}
 			}
 
 #ifdef DRONE_ONE
-//			//update preCentre by using data in centre
-//			determinePts(centre, beacon, car);
 
-			if(beaconCarVeryClose == true && centre.size() == 0)
-			{
-				//STEP 5: the car got to the beacon but the new beacon is too far away such that it is not in the frame
-				beaconCarVeryClose = false;
-				car = beacon;
-				beacon = Coor(CAM_W / 2, CAM_H / 2);
-				fakeBeacon = true;
-			}else if(beaconCarVeryClose == true && centre.size() == 1)
-			{
+			determinePts(centre, carH, carT, beacon);
 
-				//STEP 5: the car got to the beacon and the new beacon is near by
-				if(squaredDistance(beacon, centre[0]) >= FAR_DISTANCE * FAR_DISTANCE)
-				{
-					beaconCarVeryClose = false;
-					car = beacon;
-					beacon = centre[0];
-				}
-			}else if(beaconCarVeryClose == true && centre.size() == 2)
-			{
-				//don't know what to do
+			// if(beaconCarVeryClose == true && centre.size() == 0)
+			// {
+			// 	//STEP 5: the car got to the beacon but the new beacon is too far away such that it is not in the frame
+			// 	beaconCarVeryClose = false;
+			// 	car = beacon;
+			// 	beacon = Coor(CAM_W / 2, CAM_H / 2);
+			// 	fakeBeacon = true;
+			// }else if(beaconCarVeryClose == true && centre.size() == 1)
+			// {
 
-				// //the distane become large again. Need to recalculate the angle so update the coordinate
-				// if(squaredDistance(centre[0], centre[1]) > FAR_DISTANCE * FAR_DISTANCE)
-				// {
-				// 	//choose the closest point to the beacon to be the new beacon
-				// 	if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
-				// 	{
-				// 		beacon = centre[0];
-				// 		car = centre[1];
-				// 	}else
-				// 	{
-				// 		beacon = centre[1];
-				// 		car = centre[0];
-				// 	}
-				// 	beaconCarVeryClose = false;
-				// }
+			// 	//STEP 5: the car got to the beacon and the new beacon is near by
+			// 	if(squaredDistance(beacon, centre[0]) >= FAR_DISTANCE * FAR_DISTANCE)
+			// 	{
+			// 		beaconCarVeryClose = false;
+			// 		car = beacon;
+			// 		beacon = centre[0];
+			// 	}
+			// }else if(beaconCarVeryClose == true && centre.size() == 2)
+			// {
+			// 	//don't know what to do
 
-			}else if(centre.size() == 1)
-			{
-				//STEP 1:
-				//assume the starting point is car if beacon is invalid
-				if(beacon == Coor())
-				{
-					car = centre.front();
-					beacon = Coor(CAM_W / 2, CAM_H / 2);
-					fakeBeacon = true;
-				}else if(fakeBeacon == false)
-				{
-					beacon = centre.front();
-				}else if(squaredDistance(beacon, car) >= FAR_DISTANCE * FAR_DISTANCE) //STEP 4: the car approches the beacon
-				{
-					beacon = centre.front();
-					//don't know any information about the car
-					//hold that first
-					beaconCarVeryClose = false;
-				}else //else do not update the beacon coordinate to avoid blinking
-				{
-					beaconCarVeryClose = true;
-				}
-			}else if(centre.size() == 2)
-			{
-				//STEP 2:
-				if(fakeBeacon == true)
-				{
-					if(squaredDistance(car, centre[0]) < squaredDistance(car, centre[1]))
-					{
-						car = centre[0];
-						beacon = centre[1];
-					}else
-					{
-						car = centre[1];
-						beacon = centre[0];
-					}
-					fakeBeacon = false;
-				}else //STEP 3: update the beacon first
-				{
-					//choose the closest point to the beacon to be the new beacon
-					if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
-					{
-						beacon = centre[0];
-						car = centre[1];
-					}else
-					{
-						beacon = centre[1];
-						car = centre[0];
-					}
-				}
+			// 	// //the distane become large again. Need to recalculate the angle so update the coordinate
+			// 	// if(squaredDistance(centre[0], centre[1]) > FAR_DISTANCE * FAR_DISTANCE)
+			// 	// {
+			// 	// 	//choose the closest point to the beacon to be the new beacon
+			// 	// 	if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
+			// 	// 	{
+			// 	// 		beacon = centre[0];
+			// 	// 		car = centre[1];
+			// 	// 	}else
+			// 	// 	{
+			// 	// 		beacon = centre[1];
+			// 	// 		car = centre[0];
+			// 	// 	}
+			// 	// 	beaconCarVeryClose = false;
+			// 	// }
 
-			}
-#endif
+			// }else if(centre.size() == 1)
+			// {
+			// 	//STEP 1:
+			// 	//assume the starting point is car if beacon is invalid
+			// 	if(beacon == Coor())
+			// 	{
+			// 		car = centre.front();
+			// 		beacon = Coor(CAM_W / 2, CAM_H / 2);
+			// 		fakeBeacon = true;
+			// 	}else if(fakeBeacon == false)
+			// 	{
+			// 		beacon = centre.front();
+			// 	}else if(squaredDistance(beacon, car) >= FAR_DISTANCE * FAR_DISTANCE) //STEP 4: the car approches the beacon
+			// 	{
+			// 		beacon = centre.front();
+			// 		//don't know any information about the car
+			// 		//hold that first
+			// 		beaconCarVeryClose = false;
+			// 	}else //else do not update the beacon coordinate to avoid blinking
+			// 	{
+			// 		beaconCarVeryClose = true;
+			// 	}
+			// }else if(centre.size() == 2)
+			// {
+			// 	//STEP 2:
+			// 	if(fakeBeacon == true)
+			// 	{
+			// 		if(squaredDistance(car, centre[0]) < squaredDistance(car, centre[1]))
+			// 		{
+			// 			car = centre[0];
+			// 			beacon = centre[1];
+			// 		}else
+			// 		{
+			// 			car = centre[1];
+			// 			beacon = centre[0];
+			// 		}
+			// 		fakeBeacon = false;
+			// 	}else //STEP 3: update the beacon first
+			// 	{
+			// 		//choose the closest point to the beacon to be the new beacon
+			// 		if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
+			// 		{
+			// 			beacon = centre[0];
+			// 			car = centre[1];
+			// 		}else
+			// 		{
+			// 			beacon = centre[1];
+			// 			car = centre[0];
+			// 		}
+			// 	}
+
+			// }
+#endif //end of DRONE_ONE
 
 
 			// //signal from the car to reset the data in the drone
@@ -366,23 +371,22 @@ int main(void)
 			// }
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
-			sendSignal(centre);
+			sendSignal(beacon, carH, carT);
 
 
 #ifdef ENABLE_LCD
 			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
+			lcdP->FillColor(St7735r::kPurple);
+			lcdP->SetRegion(Lcd::Rect(3 + carH.x, 2 + carH.y, 3, 3));
 			lcdP->FillColor(St7735r::kBlue);
-			lcdP->SetRegion(Lcd::Rect(3 + car.x, 2 + car.y, 3, 3));
+			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
 			lcdP->FillColor(St7735r::kRed);
 
-			lcdP->SetRegion(Lcd::Rect(0, 120, 128, 50));
-			sprintf(buffer, "beacon B %d %d", beacon.x, beacon.y);
+			lcdP->SetRegion(Lcd::Rect(0, 115, 128, 50));
+			sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d", beacon.x, beacon.y, carH.x, carH.y, carT.x, carT.y);
 			writerP->WriteString(buffer);
 
-			lcdP->SetRegion(Lcd::Rect(0, 140, 128, 50));
-			sprintf(buffer, "car G %d %d", car.x, car.y);
-			writerP->WriteString(buffer);
-#endif
+#endif //end of ENABLE_LCD
 
 			centre.clear();
 
@@ -680,178 +684,120 @@ END_OF_IF_ONE_WHITE_POINT_IS_FOUND:
 
 }
 
-void determinePts(vector<Coor>& pt, Coor& beacon, Coor& car)
+void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 {
-	uint32_t d1, d2, carD1, carD2;
+	uint8_t cCount = pts.size();
+	uint16_t d1 = squaredDistance(pts[0], pts[1]);
+	uint16_t d2 = squaredDistance(pts[0], pts[2]);
+	uint16_t d3 = squaredDistance(pts[1], pts[2]);
+	float originalAngle = angleTracking(carT, carH);
 
-	uint16_t centreNo = pt.size();
-
-	// 1st Run
-	if (runFlag == 0)
+	if (cCount == 3)
 	{
-		// beacon is found
-		if (centreNo == 1)
+		uint16_t shortestD = d1;			// pt 0/1 are car
+
+		if(shortestD > d2)
+		{	shortestD = d2;	}
+		if(shortestD > d3)
+		{	shortestD = d3;	}
+
+		if (shortestD == d1)
 		{
-			prevCentreCount = centreNo;
-			beacon_old = beacon = pt[0];
-			runFlag = 1;
+			assignDirection(pts[0], pts[1], carH, carT, originalAngle);
+			beacon = pts[2];
 		}
-			//		else if (centreCount > 1)
-			//		{	centreStorage = centre;	}
+
+		else if (shortestD == d2)
+		{
+			assignDirection(pts[0], pts[2], carH, carT, originalAngle);
+			beacon = pts[1];
+		}
+		else
+		{
+			assignDirection(pts[1], pts[2], carH, carT, originalAngle);
+			beacon = pts[0];
+		}
+	}else if (cCount == 2)
+	{
+		if (squaredDistance(pts[0], pts[1]) < 13 * 13)
+		{
+			assignDirection(pts[0], pts[1], carH, carT, originalAngle);
+		}
 	}
-	// 2nd Run/ beacon is already found
-	else if (runFlag == 1)
-	{
-		if (centreNo > 0)
-		{
-			// Calculate beacon & new pt dist
-			d1 = (beacon.x - pt[0].x) * (beacon.x - pt[0].x) + (beacon.y - pt[0].y) * (beacon.y - pt[0].y);
-			beacon_old = beacon;
-		}
-
-		//	Last time only 1 centre is found
-		if (prevCentreCount == 1)
-		{
-			//	This time also only 1 centre is found
-			if (centreNo == 1)
-			{
-					if (switchBeacon(beacon, car) == false)
-					{
-						// Update beacon Coor
-						beacon = pt[0];
-					}
-			}
-
-			// This time 2 centres are located
-			else if (centreNo == 2)
-			{
-				//	Compare beacon DISTANCE_CHECKance with 2 located centres
-
-				if (switchBeacon(beacon, car) == false)
-				{
-					d2 = (beacon.x - pt[1].x) * (beacon.x - pt[1].x) + (beacon.y - pt[1].y) * (beacon.y - pt[1].y);
-
-					if ( d1 > d2 )					//	Swap occurs
-					{
-						if ( d2 < (DISTANCE_CHECK * DISTANCE_CHECK))
-						{
-							beacon = pt[1];
-							car = pt[0];
-						}
-					}else if ( d1 < (DISTANCE_CHECK * DISTANCE_CHECK))
-					{
-						car = pt[1];
-						beacon = pt[0];
-					}
-				}
-				else					// Update new beacon position
-				{
-					carD1 = (car.x - pt[0].x) * (car.x - pt[0].x) + (car.y - pt[0].y) * (car.y - pt[0].y);
-					carD2 = (car.x - pt[1].x) * (car.x - pt[1].x) + (car.y - pt[1].y) * (car.y - pt[1].y);
-					if ( carD1 > carD2 )					//	Swap occurs
-					{
-						car = pt[1];
-						beacon = pt[0];
-					}
-					else
-					{
-						beacon = pt[1];
-						car = pt[0];
-					}
-
-				}
-
-		//		carAngle = angleTracking(beacon, car);
-		//		carTurnAngle = carAngle + carTurnAngle ;
-			}
-
-			// This time >2 centres
-			else if (centreNo > 2)
-			{
-				// Only compare and update beacon Coor with all the ponts
-				if (switchBeacon(beacon, car) == false)
-				{	multiplePts(pt, beacon, car, 1);	}
-			}
-		}		// End Last time only 1 centre is found
-
-		//	Last time 2 centres are found
-		else if ( prevCentreCount == 2 )
-		{
-			// This time only 1 centre -> update beacon
-			if (centreNo == 1)
-			{
-					if (switchBeacon(beacon, car) == false)	//((d1 < (DISTANCE_CHECK * DISTANCE_CHECK)) &&
-					{
-						// Update beacon Coor
-						beacon = pt[0];
-					}
-			}
-			// More than 1 pts -> Update both beacon and car
-			else if (centreNo > 1)
-			{
-				multiplePts(pt, beacon, car, 0);
-			}
-		}		// End Last time 2 centres are found
-
-		//	Multiple pt -> 2 centres
-		prevCentreCount = centreNo;
-		if (prevCentreCount > 1)
-		{	prevCentreCount = 2;	}
-		//	Ignored case: No centre is found
-		else if (prevCentreCount == 0)
-		{	prevCentreCount = 1;	}
-
-/*		if ((centreNo > 0 ) && (switchBeacon(beacon, car) == false))
-		{
-			droneDriftAngle = angleTracking(beacon_old, beacon) -  droneDriftAngle;
-		}
-*/
-	}		// end Run flag = 1
 }
 
-void multiplePts(vector<Coor>& pts, Coor& Beacon, Coor& Car, int carOnly)
+void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle)
 {
-	uint16_t cCount = pts.size();
-	int tempResult, tempIndex = 0;
-	int smallestD = DISTANCE_CHECK * DISTANCE_CHECK;		// temp storage for smallest dist.
+	float angle1 = angleTracking(newT, newH);
+	float angle2 = angleTracking(newH, newT);
+	bool swapIsTrue = false;
 
-	//	Compare beacon Coor with all pts
-	for (int i = 0; i < (cCount-1); i++)
+	if(abs(angle1) > abs(angle2))
 	{
-		tempResult = (Beacon.x - pts[i].x)*(Beacon.x - pts[i].x) + (Beacon.y - pts[i].y) * (Beacon.y - pts[i].y);
-		if (tempResult < smallestD)
-		{
-			smallestD = tempResult;
-			tempIndex = i;
-		}
+		float tempAngle = angle1;
+		angle1 = angle2;
+		angle2 = tempAngle;
+		swapIsTrue = true;
 	}
 
-	if ((tempIndex > 0)&& (smallestD < DISTANCE_CHECK* DISTANCE_CHECK))			// shortest D is found
+	float angleDiff = originalAngle - angle1;
+	if(-90 < angleDiff && angleDiff < 90)
 	{
-		Beacon.x = pts[tempIndex].x;
-		Beacon.y = pts[tempIndex].y;
+		if(swapIsTrue)
+		{
+			carT = newH;
+			carH = newT;
+		}else
+		{
+			carT = newT;
+			carH = newH;
+		}
+	}else
+	{
+		if(swapIsTrue)
+		{
+			carT = newT;
+			carH = newH;
+		}else
+		{
+			carT = newH;
+			carH = newT;
+		}
 	}
+}
 
-	//	Compare car Coor with all pts
-	if (carOnly != 1)
+float angleTracking(Coor carT, Coor carH)
+{
+	// -180 to 180 deg
+	int deltaX = carH.x - carT.x;
+	int deltaY = carH.y - carT.y;
+
+	if (deltaX != 0)
 	{
-		tempIndex = 0;
-		smallestD = DISTANCE_CHECK * DISTANCE_CHECK;
-
-		for (int j = 0; j < (cCount-1); j++)
+		// The degree that the image has rotated
+		// rad -> deg
+		float angle = 180 * Math::ArcTan(abs(deltaY)/abs(deltaX))/ 3.141592654;
+		if (deltaX > 0)
 		{
-			tempResult = (Car.x - pts[j].x)*(Car.x - pts[j].x) + (Car.y - pts[j].y) * (Car.y - pts[j].y);
-			if (tempResult < smallestD)
-			{
-				smallestD = tempResult;
-				tempIndex = j;
-			}
+			if (deltaY > 0)
+			{	return (-90 - angle);	}
+			else
+			{	return (-90 + angle);	}
 		}
-		if (tempIndex > 0) //&& (smallestD < DISTANCE_CHECK* DISTANCE_CHECK))			// shortest D is found
+		else
 		{
-			Car.x = pts[tempIndex].x;
-			Car.y = pts[tempIndex].y;
+			if (deltaY > 0)
+			{	return (90 + angle);	}
+			else
+			{	return (90 - angle);	}
 		}
+	}
+	else
+	{
+		if (deltaY < 0)
+		{	return 0;	}
+		else if(deltaY > 0)
+		{	return 180;	}
 	}
 }
 
@@ -863,138 +809,55 @@ bool switchBeacon(Coor bn, Coor Cr)
 	{ return false;	}
 }
 
-float angleTracking(Coor beacon1, Coor beacon2)
-{
-	// Whole circle bearing
-	int deltaX = beacon2.x - beacon1.x;
-	int deltaY = beacon2.y - beacon1.y;
-
-	if ((deltaX != 0) && (deltaY != 0))
-	{
-		// The degree that the image has rotated
-		float angle = 10 * Math::ArcTan(abs(deltaY)/abs(deltaX));
-		if (deltaX > 0)
-		{
-			if (deltaY > 0)
-			{	return (90 - angle);	}
-			else
-			{	return (90 + angle);	}
-		}
-		else
-		{
-			if (deltaY > 0)
-			{	return (-90 + angle);	}
-			else
-			{	return (-90 - angle);	}
-		}
-	}
-	else
-	{	return 0;	}
-}
-
-void sendSignal(const vector<Coor>& cen)
+void sendSignal(const Coor& b, const Coor& cH, const Coor& cT)
 {
 	string tempMessage;
 	ledP[0]->Switch();
+
 	tempMessage += 's';
-
-	char buffer[20];
-
-	if(beacon == Coor())
-	{
-		tempMessage += "-01,";
-		tempMessage += "-01,";
-	}else
-	{
-		if(beacon.x <= 9)
-		{
-			sprintf(buffer, "00%d,", beacon.x);
-		}else if(beacon.x <= 99)
-		{
-			sprintf(buffer, "0%d,", beacon.x);
-		}else
-			sprintf(buffer, "%d,", beacon.x);
-
-		tempMessage += buffer;
-
-		if(beacon.y <= 9)
-		{
-			sprintf(buffer, "00%d,", beacon.y);
-		}else if(beacon.y <= 99)
-		{
-			sprintf(buffer, "0%d,", beacon.y);
-		}else
-		{
-			sprintf(buffer, "%d,", beacon.y);
-		}
-
-		tempMessage += buffer;
-	}
-	if(car == Coor())
-	{
-		tempMessage += "-01,";
-		tempMessage += "-01,";
-	}else
-	{
-		if(car.x <= 9)
-		{
-			sprintf(buffer, "00%d,", car.x);
-		}else if(car.x <= 99)
-		{
-			sprintf(buffer, "0%d,", car.x);
-		}else
-		{
-			sprintf(buffer, "%d,", car.x);
-		}
-
-		tempMessage += buffer;
-
-		if(car.y <= 9)
-		{
-			sprintf(buffer, "00%d,", car.y);
-		}else if(car.y <= 99)
-		{
-			sprintf(buffer, "0%d,", car.y);
-		}else
-		{
-			sprintf(buffer, "%d,", car.y);
-		}
-
-		tempMessage += buffer;
-	}
-
-#ifndef DRONE_ONE
-	//for obstacle detection
-	for(vector<Coor>::const_iterator it = cen.begin(); it != cen.end(); it++ )
-	{
-		if(it->x <= 9)
-		{
-			sprintf(buffer, "00%d,", it->x);
-		}else if(beacon.x <= 99)
-		{
-			sprintf(buffer, "0%d,", it->x);
-		}else
-			sprintf(buffer, "%d,", it->x);
-
-		tempMessage += buffer;
-
-		if(it->y <= 9)
-		{
-			sprintf(buffer, "00%d,", it->y);
-		}else if(beacon.y <= 99)
-		{
-			sprintf(buffer, "0%d,", it->y);
-		}else
-		{
-			sprintf(buffer, "%d,", it->y);
-		}
-
-		tempMessage += buffer;
-	}
-#endif
-
+	appendSingal(tempMessage, b);
+	appendSingal(tempMessage, cH);
+	appendSingal(tempMessage, cT);
 	tempMessage += 'e';
+
 	bluetoothP->SendStr(tempMessage);
+}
+
+void appendSingal(string& singal, const Coor& coordinate)
+{
+	char buffer[20];
+	if(coordinate == Coor())
+	{
+		singal += "-01,";
+		singal += "-01,";
+	}else
+	{
+		if(coordinate.x <= 9)
+		{
+			sprintf(buffer, "00%d,", coordinate.x);
+		}else if(coordinate.x <= 99)
+		{
+			sprintf(buffer, "0%d,", coordinate.x);
+		}else
+		{
+			sprintf(buffer, "%d,", coordinate.x);
+		}
+
+		singal += buffer;
+
+		if(coordinate.y <= 9)
+		{
+			sprintf(buffer, "00%d,", coordinate.y);
+		}else if(coordinate.y <= 99)
+		{
+			sprintf(buffer, "0%d,", coordinate.y);
+		}else
+		{
+			sprintf(buffer, "%d,", coordinate.y);
+		}
+
+		singal += buffer;
+	}
 }
 
 uint32_t squaredDistance(const Coor& b, const Coor& c)
@@ -1021,8 +884,16 @@ k60::Ov7725::Config getCameraConfig()
 	c.h = CAM_H;
 	c.fps = k60::Ov7725Configurator::Config::Fps::kMid;
 
-	c.contrast = 0x10;
-	c.brightness = 0x43;
+//	c.contrast = 0x10;
+//	c.brightness = 0x43;
+
+//	c.contrast = 0x40;
+
+
+
+//	c.brightness = 0x30;
+//
+//	c.contrast = 0x4c;
 	return c;
 }
 
@@ -1043,6 +914,9 @@ bool bluetoothListener(const Byte* data, const size_t size)
 	{
 		startTheDroneProcess = true;
 		bluetoothP->SendStr("g");
+//		beacon = Coor();
+//		fakeBeacon = false;
+//		beaconCarVeryClose = false;
 	}
 	return true;
 }
