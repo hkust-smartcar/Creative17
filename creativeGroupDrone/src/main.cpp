@@ -57,11 +57,13 @@ using namespace libbase::k60;
 using namespace libsc::k60;
 using namespace libutil;
 
-//
 
-#define CAM_W 80
-#define CAM_H 60
-uint8_t MEAN_FILTER_WINDOW_SIZE = 1;	//window size should be odd
+//#define CAM_W 80
+//#define CAM_H 60
+
+#define CAM_W 160
+#define CAM_H 120
+uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
 #define ENABLE_LCD
 
@@ -69,15 +71,16 @@ uint8_t MEAN_FILTER_WINDOW_SIZE = 1;	//window size should be odd
 
 #define DISTANCE_CHECK 30
 
-#define FAR_DISTANCE 8
+// #define FAR_DISTANCE 8
 
 #define NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO 18
 
 #define DRONE_TWO_TRANS_X 3
 #define DRONE_TWO_TRANS_Y 3
+#define CLOSE_TO_BEACON_DISTANCE 13
 
 
-void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8]);
+void imageConversion(bool des[CAM_W][CAM_H], const Byte src[CAM_W * CAM_H / 8]);
 
 void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H]);
 
@@ -103,6 +106,8 @@ uint32_t squaredDistance(const Coor& b, const Coor& c);
 void translatePoints(vector<Coor>& c);
 
 void excludeCentreFarAwayFromCar(vector<Coor>& c);
+
+void boundAngle(float& angle);
 
 
 k60::Ov7725::Config getCameraConfig();
@@ -134,6 +139,12 @@ bool beaconCarVeryClose = false;
 bool startFlag = false;
 string messageFromDrone;
 vector<int16_t> coorBuffer;
+vector<uint16_t> regionSize;
+
+const Byte* cameraBuffer;
+//Byte cameraBufferFiltered[CAM_W * CAM_H / 8];
+bool boolImage[CAM_W][CAM_H];
+//bool boolImageFiltered[CAM_W][CAM_H];
 
 
 ///////////////////////////////////////////////////////This is for the drone
@@ -175,19 +186,16 @@ int main(void)
 	cameraP = &camera;
 
 	//data
-	Byte cameraBuffer[CAM_W * CAM_H / 8];
-	bool boolImage[CAM_W][CAM_H];
-	bool boolImageFiltered[CAM_W][CAM_H];
 	vector<Coor> centre;
 //	vector<Coor> preCentre;		//assume size of two
 	Coor beacon;
 	Coor carH;
 	Coor carT;
 
-	//initialize camera related arrays and vectors
-	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
-	for(int i = 0; i < CAM_W; i++)
-		memset(boolImage + i, 0, CAM_H);
+//	//initialize camera related arrays and vectors
+//	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
+//	for(int i = 0; i < CAM_W; i++)
+//		memset(boolImage + i, 0, CAM_H);
 //	preCentre.push_back(Coor());
 //	preCentre.push_back(Coor());
 
@@ -196,11 +204,11 @@ int main(void)
 	//--------------------------------JOYSTICK
 	Joystick js(getJoystickConfig(0));
 
-//	while(!startTheDroneProcess)
-//	{
-//		ledP[2]->Switch();
-//		System::DelayMs(20);
-//	}
+	while(!startTheDroneProcess)
+	{
+		ledP[2]->Switch();
+		System::DelayMs(20);
+	}
 
 	ledP[2]->SetEnable(false);
 
@@ -215,30 +223,24 @@ int main(void)
 			lastTime = System::Time();
 
 			//update camera image
-			memcpy(cameraBuffer, cameraP->LockBuffer(), CAM_W * CAM_H / 8);
+			cameraBuffer = cameraP->LockBuffer();
 			cameraP->UnlockBuffer();
-
-			//print camera image easy version
-			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
-			//0 = white ************** in camera image
-			//White = 0xFFFF = white in real
-			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
 
 			//formatting to boolean form
 			imageConversion(boolImage, cameraBuffer);
 
 //			//filtering
 //			meanFilter(boolImageFiltered, boolImage);
-
+//
 //			//formatting to Byte from
-//			imageConversionBack(cameraBuffer, boolImageFiltered);
+//			imageConversionBack(cameraBufferFiltered, boolImageFiltered);
 
 #ifdef ENABLE_LCD
-			//print camera image easy version
-			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
-			//0 = white ************** in camera image
-			//White = 0xFFFF = white in real
-			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
+//			//print camera image easy version
+//			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
+//			//0 = white ************** in camera image
+//			//White = 0xFFFF = white in real
+//			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
 #endif //end of ENABLE_LCD
 
 			//find centre of white regions
@@ -252,19 +254,19 @@ int main(void)
 			writerP->WriteString(buffer);
 #endif //end of ENABLE_LCD
 
-			//indicate the centre of white regions with red little square
-			if(centre.size()>0)
-			{
-				for(uint8_t a = 0; a < centre.size(); a++)
-				{
-					if(a>0)
-						assert(centre[a]!=centre[a-1]);
-#ifdef ENABLE_LCD
-					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
-					lcdP->FillColor(St7735r::kRed);
-#endif //end of ENABLE_LCD
-				}
-			}
+// 			//indicate the centre of white regions with red little square
+// 			if(centre.size()>0)
+// 			{
+// 				for(uint8_t a = 0; a < centre.size(); a++)
+// 				{
+// 					if(a>0)
+// 						assert(centre[a]!=centre[a-1]);
+// #ifdef ENABLE_LCD
+// 					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
+// 					lcdP->FillColor(St7735r::kRed);
+// #endif //end of ENABLE_LCD
+// 				}
+// 			}
 
 #ifdef DRONE_ONE
 
@@ -375,17 +377,16 @@ int main(void)
 
 
 #ifdef ENABLE_LCD
-			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
-			lcdP->FillColor(St7735r::kPurple);
-			lcdP->SetRegion(Lcd::Rect(3 + carH.x, 2 + carH.y, 3, 3));
-			lcdP->FillColor(St7735r::kBlue);
-			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
-			lcdP->FillColor(St7735r::kRed);
+//			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
+//			lcdP->FillColor(St7735r::kPurple);
+//			lcdP->SetRegion(Lcd::Rect(3 + carH.x, 2 + carH.y, 3, 3));
+//			lcdP->FillColor(St7735r::kBlue);
+//			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
+//			lcdP->FillColor(St7735r::kRed);
 
 			lcdP->SetRegion(Lcd::Rect(0, 115, 128, 50));
 			sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d", beacon.x, beacon.y, carH.x, carH.y, carT.x, carT.y);
 			writerP->WriteString(buffer);
-
 #endif //end of ENABLE_LCD
 
 			centre.clear();
@@ -396,7 +397,7 @@ int main(void)
 	return 0;
 }
 
-void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8])
+void imageConversion(bool des[CAM_W][CAM_H], const Byte src[CAM_W * CAM_H / 8])
 {
 	for(uint16_t i = 0; i < CAM_H; i++)
 		for(uint16_t j = 0; j < CAM_W / 8; j++)
@@ -482,6 +483,8 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 		distriX[i] = 0;
 	for(uint8_t i = 0; i < CAM_H; i++)
 		distriY[i] = 0;
+
+
 	for(uint8_t i = 0; i < CAM_W; i++)
 		for(uint8_t j = 0; j < CAM_H; j++)
 			if(in[i][j] == 0)
@@ -661,6 +664,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 						uint64_t cenX = 0;
 						uint64_t cenY = 0;
 						uint32_t base = qForStore.size();
+						regionSize.push_back(base);
 #ifndef DRONE_ONE
 						if(qForStore.size() > NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO)
 							goto END_OF_IF_ONE_WHITE_POINT_IS_FOUND;
@@ -687,88 +691,141 @@ END_OF_IF_ONE_WHITE_POINT_IS_FOUND:
 void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 {
 	uint8_t cCount = pts.size();
-	uint16_t d1 = squaredDistance(pts[0], pts[1]);
-	uint16_t d2 = squaredDistance(pts[0], pts[2]);
-	uint16_t d3 = squaredDistance(pts[1], pts[2]);
-	float originalAngle = angleTracking(carT, carH);
 
+	//three point case
 	if (cCount == 3)
 	{
-		uint16_t shortestD = d1;			// pt 0/1 are car
+		uint16_t d1 = squaredDistance(pts[0], pts[1]);
+		uint16_t d2 = squaredDistance(pts[0], pts[2]);
+		uint16_t d3 = squaredDistance(pts[1], pts[2]);
 
-		if(shortestD > d2)
-		{	shortestD = d2;	}
-		if(shortestD > d3)
-		{	shortestD = d3;	}
+		uint16_t shortestD = d1;
+		uint16_t greatestD = d1;
 
-		if (shortestD == d1)
+		//find the minimum distance
+		if (shortestD > d2)
 		{
-			assignDirection(pts[0], pts[1], carH, carT, originalAngle);
-			beacon = pts[2];
+			shortestD = d2;
+		}
+		if (shortestD > d3)
+		{
+			shortestD = d3;
 		}
 
-		else if (shortestD == d2)
+		//find the greatest distance
+		if (greatestD < d2)
 		{
-			assignDirection(pts[0], pts[2], carH, carT, originalAngle);
-			beacon = pts[1];
+			greatestD = d2;
 		}
-		else
+		if (greatestD < d3)
 		{
-			assignDirection(pts[1], pts[2], carH, carT, originalAngle);
-			beacon = pts[0];
+			greatestD = d3;
 		}
-	}else if (cCount == 2)
+
+		//do not update the pts if the three are very close to each other
+		if (greatestD > CLOSE_TO_BEACON_DISTANCE)
+		{
+			//determine car head and tail by area
+			if (shortestD == d1)
+			{
+				if (regionSize[0] < regionSize[1])
+				{
+					carH = pts[0];
+					carT = pts[1];
+				}else
+				{
+					carH = pts[1];
+					carT = pts[0];
+				}
+				beacon = pts[2];
+			} else if (shortestD == d2)
+			{
+				if (regionSize[0] < regionSize[2])
+				{
+					carH = pts[0];
+					carT = pts[2];
+				}else
+				{
+					carH = pts[2];
+					carT = pts[0];
+				}
+				beacon = pts[1];
+			} else
+			{
+				if (regionSize[1] < regionSize[2])
+				{
+					carH = pts[1];
+					carT = pts[2];
+				}else
+				{
+					carH = pts[2];
+					carT = pts[1];
+				}
+				beacon = pts[0];
+			}
+		}
+
+	//two point case
+	} else if (cCount == 2)
 	{
+		//if the two point are close, set them to be the car
 		if (squaredDistance(pts[0], pts[1]) < 13 * 13)
 		{
-			assignDirection(pts[0], pts[1], carH, carT, originalAngle);
+			if (regionSize[0] < regionSize[1])
+			{
+				carH = pts[0];
+				carT = pts[1];
+			}else
+			{
+				carH = pts[1];
+				carT = pts[0];
+			}
 		}
+
+		//for guiding the car
+		beacon = Coor(CAM_W / 2, CAM_H / 2);
 	}
+	regionSize.clear();
 }
 
 void assignDirection(Coor& newH, Coor& newT, Coor& carH, Coor& carT, float originalAngle)
 {
 	float angle1 = angleTracking(newT, newH);
 	float angle2 = angleTracking(newH, newT);
-	bool swapIsTrue = false;
 
-	if(abs(angle1) > abs(angle2))
-	{
-		float tempAngle = angle1;
-		angle1 = angle2;
-		angle2 = tempAngle;
-		swapIsTrue = true;
-	}
+	angle1 = originalAngle - angle1;
+	angle2 = originalAngle - angle2;
 
-	float angleDiff = originalAngle - angle1;
-	if(-90 < angleDiff && angleDiff < 90)
+	boundAngle(angle1);
+	boundAngle(angle2);
+
+	if (angle1 < angle2)
 	{
-		if(swapIsTrue)
-		{
-			carT = newH;
-			carH = newT;
-		}else
-		{
-			carT = newT;
-			carH = newH;
-		}
+		carH = newH;
+		carT = newT;
 	}else
 	{
-		if(swapIsTrue)
-		{
-			carT = newT;
-			carH = newH;
-		}else
-		{
-			carT = newH;
-			carH = newT;
-		}
+		carH = newT;
+		carT = newH;
+	}
+}
+
+void boundAngle(float& angle)
+{
+	if (angle < -180)
+	{
+		angle += 360;
+	}else if(angle > 180)
+	{
+		angle -= 360;
 	}
 }
 
 float angleTracking(Coor carT, Coor carH)
 {
+	//it is assumed that carT and carH is not the same point
 	// -180 to 180 deg
+
 	int deltaX = carH.x - carT.x;
 	int deltaY = carH.y - carT.y;
 
@@ -776,28 +833,35 @@ float angleTracking(Coor carT, Coor carH)
 	{
 		// The degree that the image has rotated
 		// rad -> deg
-		float angle = 180 * Math::ArcTan(abs(deltaY)/abs(deltaX))/ 3.141592654;
+		float angle = 180 * Math::ArcTan((float) abs(deltaY) / abs(deltaX)) / 3.141592654;
 		if (deltaX > 0)
 		{
 			if (deltaY > 0)
-			{	return (-90 - angle);	}
-			else
-			{	return (-90 + angle);	}
-		}
-		else
+			{
+				return (-90 - angle);
+			} else
+			{
+				return (-90 + angle);
+			}
+		} else
 		{
 			if (deltaY > 0)
-			{	return (90 + angle);	}
-			else
-			{	return (90 - angle);	}
+			{
+				return (90 + angle);
+			} else
+			{
+				return (90 - angle);
+			}
 		}
-	}
-	else
+	} else
 	{
-		if (deltaY < 0)
-		{	return 0;	}
-		else if(deltaY > 0)
-		{	return 180;	}
+		if (deltaY > 0)
+		{
+			return 180;
+		} else
+		{	
+			return 180;
+		}
 	}
 }
 
