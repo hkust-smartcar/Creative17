@@ -182,7 +182,7 @@ std::string messageFromDrone;
 std::vector<int16_t> coorBuffer;
 
 //servo control
-float servoKP = 5;
+float servoKP = 8;
 float servoKD = 0;
 uint16_t servoOutput;
 
@@ -209,6 +209,8 @@ bool irOn = false;
 bool lockServo = false;
 bool moveBack = false;
 bool moveForward = false;
+
+bool beaconCarVeryClose = false;
 
 int32_t accEncL = 0;
 int32_t accEncR = 0;
@@ -302,7 +304,7 @@ int main(void)
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
 	motorRP = &motorR;
-	motorSetPower(150, 150);
+	motorSetPower(160, 160);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
@@ -370,7 +372,7 @@ int main(void)
 	uint32_t lastTime = System::Time();
 	while(true)
 	{
-		if( ( System::Time() - lastTime ) >= 50)
+		if( ( System::Time() - lastTime ) >= 30)
 		{
 			lastTime = System::Time();
 			ledP[0]->Switch();
@@ -378,8 +380,6 @@ int main(void)
 
 
 
-			//need to disable while testing with motor set power 0
-			// dodgeObstacle();
 
 
 
@@ -486,6 +486,7 @@ int main(void)
 						}
 					}
 
+#ifdef ENABLE_LCD
 					char buffer[200];
 					//for testing new bluetooth code
 					lcdP->SetRegion(Lcd::Rect(0, 0, 128, 50));
@@ -496,6 +497,7 @@ int main(void)
 					lcdP->SetRegion(Lcd::Rect(0, 60, 128, 50));
 					sprintf(buffer, "Error: %f\nAAngle: %f\n", carAngleError, angleTracking(carT, carH));
 					writerP->WriteString(buffer);
+#endif //ENABLE_LCD
 
 
 //						char buffer[100];
@@ -525,6 +527,22 @@ int main(void)
 
 				carAngleErrorPrevious = carAngleError;
 				servo.SetDegree(servoOutput);
+				if (distanceSquare(carH, beacon) < 13 * 13)
+				{
+					motorSetPower(0, 0);
+					beaconCarVeryClose = true;
+				}else
+				{
+					motorSetPower(200, 200);
+					beaconCarVeryClose = false;
+				}
+			}
+
+
+			//need to disable while testing with motor set power 0
+			if (beaconCarVeryClose == false)
+			{
+				dodgeObstacle();
 			}
 
 		}//end if for checking time

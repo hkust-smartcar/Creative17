@@ -12,11 +12,16 @@ obj/main-d-2017-creative.o: src/main.cpp src/Coor.h src/PID.h src/Sr04.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/misc_utils_c.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pinout_macros.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pinout/mk60f15_lqfp144_macros.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pin.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pin.h src/Qmc5883.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/helper.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master_interface.h \
+ C:\Users\ChungWa\git\libsccc\inc/libbase/k60/soft_i2c_master.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/config.h \
+ C:\Users\ChungWa\git\libsccc\inc/libsc/k60/config/2017_creative.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/mcg_c.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/led.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/helper.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/button.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/k60/uart_device.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/uart.h \
@@ -28,14 +33,9 @@ obj/main-d-2017-creative.o: src/main.cpp src/Coor.h src/PID.h src/Sr04.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pit.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/pwm.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/ftm_pwm.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/config.h \
- C:\Users\ChungWa\git\libsccc\inc/libsc/k60/config/2017_creative.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/dir_motor.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/motor.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/mpu6050.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/i2c_master_interface.h \
- C:\Users\ChungWa\git\libsccc\inc/libbase/k60/soft_i2c_master.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/mini_lcd.h \
  C:\Users\ChungWa\git\libsccc\inc/libsc/battery_meter.h \
  C:\Users\ChungWa\git\libsccc\inc/libbase/k60/adc.h \

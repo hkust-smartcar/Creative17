@@ -65,7 +65,7 @@ using namespace libutil;
 #define CAM_H 120
 uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
-#define ENABLE_LCD
+//#define ENABLE_LCD
 
 #define DRONE_ONE
 
@@ -218,7 +218,7 @@ int main(void)
 	uint32_t lastTime = System::Time();
 	while(true)
 	{
-		if( ( System::Time() - lastTime ) >= 50)
+		if( ( System::Time() - lastTime ) >= 30)
 		{
 			lastTime = System::Time();
 
@@ -769,7 +769,7 @@ void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 	} else if (cCount == 2)
 	{
 		//if the two point are close, set them to be the car
-		if (squaredDistance(pts[0], pts[1]) < 13 * 13)
+		if (squaredDistance(pts[0], pts[1]) < CLOSE_TO_BEACON_DISTANCE * CLOSE_TO_BEACON_DISTANCE)
 		{
 			if (regionSize[0] < regionSize[1])
 			{

@@ -89,6 +89,10 @@ public:
 
 	std::array<int32_t, 3> GetNormalizedMag() const;
 
+	void SetMagMin(const std::array<int16_t, 3>& min);
+
+	void SetMagMax(const std::array<int16_t, 3>& max);
+
 	I2cMaster* GetI2cMaster(){
 		return m_i2c;
 	}

@@ -66,10 +66,10 @@ m_i2c(0)
 	Define
 	OSR = 512
 	Full Scale Range = 8G(Gauss)
-	ODR = 200HZ
+	ODR = 100HZ
 	set continuous measurement mode
 	*/
-	assert(m_i2c->SendByte(QMC5883_ADDR, 0x09, Mode_Continuous | ODR_200Hz | RNG_8G | OSR_512));
+	assert(m_i2c->SendByte(QMC5883_ADDR, 0x09, Mode_Continuous | ODR_100Hz | RNG_8G | OSR_512));
 	System::DelayUs(1);
 
 	//make sure the min and max are in the right range by giving them initial value
