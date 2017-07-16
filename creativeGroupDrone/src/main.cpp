@@ -63,9 +63,12 @@ using namespace libutil;
 
 #define CAM_W 160
 #define CAM_H 120
+
+//#define CAM_W 240
+//#define CAM_H 180
 uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
-//#define ENABLE_LCD
+#define ENABLE_LCD
 
 #define DRONE_ONE
 
@@ -118,14 +121,15 @@ Joystick::Config getJoystickConfig(uint8_t _id);
 
 
 //void printCameraImage(const Byte* image);
-bool bluetoothListener(const Byte* data, const size_t size);
+bool bluetoothListenerOne(const Byte* data, const size_t size);
+bool bluetoothListenerTwo(const Byte* data, const size_t size);
 
 
 
 Led* ledP[4];
 St7735r* lcdP;
 Ov7725* cameraP;
-JyMcuBt106* bluetoothP;
+JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
 bool runFlag = 0;
@@ -145,6 +149,13 @@ const Byte* cameraBuffer;
 //Byte cameraBufferFiltered[CAM_W * CAM_H / 8];
 bool boolImage[CAM_W][CAM_H];
 //bool boolImageFiltered[CAM_W][CAM_H];
+
+
+//mode 0: normal racing
+//mode 1: sending camera image through bluetooth
+uint8_t mode = 1;
+
+
 
 
 ///////////////////////////////////////////////////////This is for the drone
@@ -178,8 +189,17 @@ int main(void)
 	writerP = &writer;
 
 	//--------------------------------bluetooth
-	JyMcuBt106 bt(getBluetoothConfig());
-	bluetoothP = &bt;
+	UartDevice::Config bluetoothC;
+	bluetoothC.id = 0;
+	bluetoothC.baud_rate = Uart::Config::BaudRate::k115200;
+	bluetoothC.rx_isr = bluetoothListenerOne;
+	JyMcuBt106 bt1(bluetoothC);
+	bluetoothP[0] = &bt1;
+
+	bluetoothC.id = 1;
+	bluetoothC.rx_isr = bluetoothListenerTwo;
+	JyMcuBt106 bt2(bluetoothC);
+	bluetoothP[1] = &bt2;
 
 	//--------------------------------camera
 	Ov7725 camera(getCameraConfig());
@@ -187,213 +207,145 @@ int main(void)
 
 	//data
 	vector<Coor> centre;
-//	vector<Coor> preCentre;		//assume size of two
 	Coor beacon;
 	Coor carH;
 	Coor carT;
-
-//	//initialize camera related arrays and vectors
-//	memset(cameraBuffer, 0, CAM_W * CAM_H / 8);
-//	for(int i = 0; i < CAM_W; i++)
-//		memset(boolImage + i, 0, CAM_H);
-//	preCentre.push_back(Coor());
-//	preCentre.push_back(Coor());
 
 	cameraP->Start();
 
 	//--------------------------------JOYSTICK
 	Joystick js(getJoystickConfig(0));
 
-	while(!startTheDroneProcess)
+	if (mode == 0)
 	{
-		ledP[2]->Switch();
-		System::DelayMs(20);
-	}
 
-	ledP[2]->SetEnable(false);
-
-//	//spare for next reset
-//	startTheDroneProcess = false;
-
-	uint32_t lastTime = System::Time();
-	while(true)
-	{
-		if( ( System::Time() - lastTime ) >= 30)
+		while(!startTheDroneProcess)
 		{
-			lastTime = System::Time();
+			ledP[2]->Switch();
+			System::DelayMs(20);
+		}
 
-			//update camera image
-			cameraBuffer = cameraP->LockBuffer();
-			cameraP->UnlockBuffer();
+		ledP[2]->SetEnable(false);
 
-			//formatting to boolean form
-			imageConversion(boolImage, cameraBuffer);
+	//	//spare for next reset
+	//	startTheDroneProcess = false;
 
-//			//filtering
-//			meanFilter(boolImageFiltered, boolImage);
-//
-//			//formatting to Byte from
-//			imageConversionBack(cameraBufferFiltered, boolImageFiltered);
+		uint32_t lastTime = System::Time();
+		while(true)
+		{
+			if( ( System::Time() - lastTime ) >= 30)
+			{
+				lastTime = System::Time();
+				ledP[3]->Switch();
 
-#ifdef ENABLE_LCD
-//			//print camera image easy version
-//			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
-//			//0 = white ************** in camera image
-//			//White = 0xFFFF = white in real
-//			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
-#endif //end of ENABLE_LCD
+				//update camera image
+				cameraBuffer = cameraP->LockBuffer();
+				cameraP->UnlockBuffer();
 
-			//find centre of white regions
-			centreFinder(centre, boolImage);
+				// {
+				// 	const Byte imageByte = 170;
+				// 	bluetoothP->SendBuffer(&imageByte, 1);
+				// }
+				// bluetoothP->SendBuffer(cameraBuffer, CAM_W * CAM_H / 8);
 
-#ifdef ENABLE_LCD
-			//for print no. of centre out
-			lcdP->SetRegion(Lcd::Rect(0,100,128,50));
-			char buffer[50];
-			sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
-			writerP->WriteString(buffer);
-#endif //end of ENABLE_LCD
+				//formatting to boolean form
+				imageConversion(boolImage, cameraBuffer);
 
-// 			//indicate the centre of white regions with red little square
-// 			if(centre.size()>0)
-// 			{
-// 				for(uint8_t a = 0; a < centre.size(); a++)
-// 				{
-// 					if(a>0)
-// 						assert(centre[a]!=centre[a-1]);
-// #ifdef ENABLE_LCD
-// 					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
-// 					lcdP->FillColor(St7735r::kRed);
-// #endif //end of ENABLE_LCD
-// 				}
-// 			}
+	//			//filtering
+	//			meanFilter(boolImageFiltered, boolImage);
+	//
+	//			//formatting to Byte from
+	//			imageConversionBack(cameraBufferFiltered, boolImageFiltered);
 
-#ifdef DRONE_ONE
+	#ifdef ENABLE_LCD
+				// //print camera image easy version
+				// lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
+				// //0 = white ************** in camera image
+				// //White = 0xFFFF = white in real
+				// lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
+	#endif //end of ENABLE_LCD
 
-			determinePts(centre, carH, carT, beacon);
+				//find centre of white regions
+				centreFinder(centre, boolImage);
 
-			// if(beaconCarVeryClose == true && centre.size() == 0)
-			// {
-			// 	//STEP 5: the car got to the beacon but the new beacon is too far away such that it is not in the frame
-			// 	beaconCarVeryClose = false;
-			// 	car = beacon;
-			// 	beacon = Coor(CAM_W / 2, CAM_H / 2);
-			// 	fakeBeacon = true;
-			// }else if(beaconCarVeryClose == true && centre.size() == 1)
-			// {
+	#ifdef ENABLE_LCD
+				//for print no. of centre out
+				lcdP->SetRegion(Lcd::Rect(0,100,128,50));
+				char buffer[50];
+				sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
+				writerP->WriteString(buffer);
+	#endif //end of ENABLE_LCD
 
-			// 	//STEP 5: the car got to the beacon and the new beacon is near by
-			// 	if(squaredDistance(beacon, centre[0]) >= FAR_DISTANCE * FAR_DISTANCE)
-			// 	{
-			// 		beaconCarVeryClose = false;
-			// 		car = beacon;
-			// 		beacon = centre[0];
-			// 	}
-			// }else if(beaconCarVeryClose == true && centre.size() == 2)
-			// {
-			// 	//don't know what to do
+	// 			//indicate the centre of white regions with red little square
+	// 			if(centre.size()>0)
+	// 			{
+	// 				for(uint8_t a = 0; a < centre.size(); a++)
+	// 				{
+	// 					if(a>0)
+	// 						assert(centre[a]!=centre[a-1]);
+	// #ifdef ENABLE_LCD
+	// 					lcdP->SetRegion(Lcd::Rect(3 + centre[a].x, 2 + centre[a].y, 2, 2));
+	// 					lcdP->FillColor(St7735r::kRed);
+	// #endif //end of ENABLE_LCD
+	// 				}
+	// 			}
 
-			// 	// //the distane become large again. Need to recalculate the angle so update the coordinate
-			// 	// if(squaredDistance(centre[0], centre[1]) > FAR_DISTANCE * FAR_DISTANCE)
-			// 	// {
-			// 	// 	//choose the closest point to the beacon to be the new beacon
-			// 	// 	if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
-			// 	// 	{
-			// 	// 		beacon = centre[0];
-			// 	// 		car = centre[1];
-			// 	// 	}else
-			// 	// 	{
-			// 	// 		beacon = centre[1];
-			// 	// 		car = centre[0];
-			// 	// 	}
-			// 	// 	beaconCarVeryClose = false;
-			// 	// }
-
-			// }else if(centre.size() == 1)
-			// {
-			// 	//STEP 1:
-			// 	//assume the starting point is car if beacon is invalid
-			// 	if(beacon == Coor())
-			// 	{
-			// 		car = centre.front();
-			// 		beacon = Coor(CAM_W / 2, CAM_H / 2);
-			// 		fakeBeacon = true;
-			// 	}else if(fakeBeacon == false)
-			// 	{
-			// 		beacon = centre.front();
-			// 	}else if(squaredDistance(beacon, car) >= FAR_DISTANCE * FAR_DISTANCE) //STEP 4: the car approches the beacon
-			// 	{
-			// 		beacon = centre.front();
-			// 		//don't know any information about the car
-			// 		//hold that first
-			// 		beaconCarVeryClose = false;
-			// 	}else //else do not update the beacon coordinate to avoid blinking
-			// 	{
-			// 		beaconCarVeryClose = true;
-			// 	}
-			// }else if(centre.size() == 2)
-			// {
-			// 	//STEP 2:
-			// 	if(fakeBeacon == true)
-			// 	{
-			// 		if(squaredDistance(car, centre[0]) < squaredDistance(car, centre[1]))
-			// 		{
-			// 			car = centre[0];
-			// 			beacon = centre[1];
-			// 		}else
-			// 		{
-			// 			car = centre[1];
-			// 			beacon = centre[0];
-			// 		}
-			// 		fakeBeacon = false;
-			// 	}else //STEP 3: update the beacon first
-			// 	{
-			// 		//choose the closest point to the beacon to be the new beacon
-			// 		if(squaredDistance(beacon, centre[0]) < squaredDistance(beacon, centre[1]))
-			// 		{
-			// 			beacon = centre[0];
-			// 			car = centre[1];
-			// 		}else
-			// 		{
-			// 			beacon = centre[1];
-			// 			car = centre[0];
-			// 		}
-			// 	}
-
-			// }
-#endif //end of DRONE_ONE
+	#ifdef DRONE_ONE
+				determinePts(centre, carH, carT, beacon);
+	#endif //end of DRONE_ONE
 
 
-			// //signal from the car to reset the data in the drone
-			// if(startTheDroneProcess)
-			// {
-			// 	beacon = Coor();
-			// 	car = Coor();
-			// 	startTheDroneProcess = false;
-			// }
+				// //signal from the car to reset the data in the drone
+				// if(startTheDroneProcess)
+				// {
+				// 	beacon = Coor();
+				// 	car = Coor();
+				// 	startTheDroneProcess = false;
+				// }
 
-			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
-			sendSignal(beacon, carH, carT);
-
-
-#ifdef ENABLE_LCD
-//			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
-//			lcdP->FillColor(St7735r::kPurple);
-//			lcdP->SetRegion(Lcd::Rect(3 + carH.x, 2 + carH.y, 3, 3));
-//			lcdP->FillColor(St7735r::kBlue);
-//			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
-//			lcdP->FillColor(St7735r::kRed);
-
-			lcdP->SetRegion(Lcd::Rect(0, 115, 128, 50));
-			sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d", beacon.x, beacon.y, carH.x, carH.y, carT.x, carT.y);
-			writerP->WriteString(buffer);
-#endif //end of ENABLE_LCD
-
-			centre.clear();
+				//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
+				sendSignal(beacon, carH, carT);
 
 
-		}//end if for checking time
-	}//end while loop
+	#ifdef ENABLE_LCD
+	//			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
+	//			lcdP->FillColor(St7735r::kPurple);
+	//			lcdP->SetRegion(Lcd::Rect(3 + carH.x, 2 + carH.y, 3, 3));
+	//			lcdP->FillColor(St7735r::kBlue);
+	//			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
+	//			lcdP->FillColor(St7735r::kRed);
+
+				lcdP->SetRegion(Lcd::Rect(0, 115, 128, 50));
+				sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d", beacon.x, beacon.y, carH.x, carH.y, carT.x, carT.y);
+				writerP->WriteString(buffer);
+	#endif //end of ENABLE_LCD
+
+				centre.clear();
+			}//end if for checking time
+		}//end while loop
+	} else if (mode == 1)
+	{
+		uint32_t lastTime = System::Time();
+		while(true)
+		{
+			if( ( System::Time() - lastTime ) >= 200)
+			{
+				lastTime = System::Time();
+				ledP[3]->Switch();
+
+				//update camera image
+				cameraBuffer = cameraP->LockBuffer();
+				cameraP->UnlockBuffer();
+
+				{
+					Byte imageByte[] = {170};
+					bluetoothP[1]->SendBuffer(&imageByte, 1);
+				}
+				bluetoothP[1]->SendBuffer(cameraBuffer, CAM_W * CAM_H / 8);
+
+			}//end if for checking time
+		}//end while loop
+	}
 	return 0;
 }
 
@@ -768,7 +720,7 @@ void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 	//two point case
 	} else if (cCount == 2)
 	{
-		//if the two point are close, set them to be the car
+		//if the two points are close, set them to be the car
 		if (squaredDistance(pts[0], pts[1]) < CLOSE_TO_BEACON_DISTANCE * CLOSE_TO_BEACON_DISTANCE)
 		{
 			if (regionSize[0] < regionSize[1])
@@ -884,7 +836,7 @@ void sendSignal(const Coor& b, const Coor& cH, const Coor& cT)
 	appendSingal(tempMessage, cT);
 	tempMessage += 'e';
 
-	bluetoothP->SendStr(tempMessage);
+	bluetoothP[0]->SendStr(tempMessage);
 }
 
 void appendSingal(string& singal, const Coor& coordinate)
@@ -961,27 +913,32 @@ k60::Ov7725::Config getCameraConfig()
 	return c;
 }
 
-UartDevice::Config getBluetoothConfig()
-{
-	UartDevice::Config c;
-	c.id = 0;
-	c.baud_rate = Uart::Config::BaudRate::k115200;
-	c.rx_irq_threshold = 1;
-	c.rx_isr = bluetoothListener;
-	return c;
-}
+//UartDevice::Config getBluetoothConfig()
+//{
+//	UartDevice::Config c;
+//	c.id = 0;
+//	c.baud_rate = Uart::Config::BaudRate::k115200;
+//	c.rx_irq_threshold = 1;
+//	c.rx_isr = bluetoothListener;
+//	return c;
+//}
 
 #ifdef DRONE_ONE
-bool bluetoothListener(const Byte* data, const size_t size)
+bool bluetoothListenerOne(const Byte* data, const size_t size)
 {
 	if(*data == 'g')
 	{
 		startTheDroneProcess = true;
-		bluetoothP->SendStr("g");
+		bluetoothP[0]->SendStr("g");
 //		beacon = Coor();
 //		fakeBeacon = false;
 //		beaconCarVeryClose = false;
 	}
+	return true;
+}
+
+bool bluetoothListenerTwo(const Byte* data, const size_t size)
+{
 	return true;
 }
 #endif
