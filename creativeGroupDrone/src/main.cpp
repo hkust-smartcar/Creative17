@@ -14,6 +14,7 @@
 #include <queue>
 #include <cstdint>
 #include "Coor.h"
+#include "PID.h"
 #include <libbase/k60/mcg.h>
 #include <libsc/system.h>
 #include <libsc/led.h>
@@ -32,6 +33,7 @@
 #include <libsc/st7735r.h>
 #include <libsc/lcd_typewriter.h>
 #include <libutil/math.h>
+#include <libsc/tower_pro_mg995.h>
 #include <math.h>
 
 using namespace std;
@@ -68,7 +70,7 @@ using namespace libutil;
 //#define CAM_H 180
 uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
-#define ENABLE_LCD
+//#define ENABLE_LCD
 
 #define DRONE_ONE
 
@@ -81,6 +83,14 @@ uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 #define DRONE_TWO_TRANS_X 3
 #define DRONE_TWO_TRANS_Y 3
 #define CLOSE_TO_BEACON_DISTANCE 13
+
+#define X_DIR_SERVO_MIN 260
+#define X_DIR_SERVO_MID 1030
+#define X_DIR_SERVO_MAX 1800
+
+#define Y_DIR_SERVO_MIN 240
+#define Y_DIR_SERVO_MID 995
+#define Y_DIR_SERVO_MAX 1750
 
 
 void imageConversion(bool des[CAM_W][CAM_H], const Byte src[CAM_W * CAM_H / 8]);
@@ -112,6 +122,10 @@ void excludeCentreFarAwayFromCar(vector<Coor>& c);
 
 void boundAngle(float& angle);
 
+void servoControl(const Coor& h, const Coor& t);
+
+void servoMoveTo(const int32_t& xDeg, const int32_t& yDeg);
+
 
 k60::Ov7725::Config getCameraConfig();
 UartDevice::Config getBluetoothConfig();
@@ -132,6 +146,9 @@ Ov7725* cameraP;
 JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
+TowerProMg995* servoP[2];
+
+
 bool runFlag = 0;
 uint8_t prevCentreCount = 0;
 
@@ -153,7 +170,19 @@ bool boolImage[CAM_W][CAM_H];
 
 //mode 0: normal racing
 //mode 1: sending camera image through bluetooth
-uint8_t mode = 1;
+uint8_t mode = 0;
+
+
+const float xKP = 7;
+// const float xKI = 0.55;
+const float xKI = 1.3;
+const float xKD = 0;
+
+const float yKP = 7;
+// const float yKI = 0.8;
+const float yKI = 1.3;
+const float yKD = 0;
+PID servoPid[2] = {PID(xKP, xKI, xKD), PID(yKP, yKI, yKD)};
 
 
 
@@ -205,6 +234,20 @@ int main(void)
 	Ov7725 camera(getCameraConfig());
 	cameraP = &camera;
 
+	//--------------------------------servo
+	TowerProMg995::Config servoC;
+	servoC.id = 0;
+	TowerProMg995 xServo(servoC);
+	servoP[0] = &xServo;
+	servoC.id = 1;
+	TowerProMg995 yServo(servoC);
+	servoP[1] = &yServo;
+	servoP[0]->SetDegree(X_DIR_SERVO_MID);
+	servoP[1]->SetDegree(Y_DIR_SERVO_MID);
+
+	servoPid[0].errorSumBound = (int32_t) (750 / xKI);
+	servoPid[1].errorSumBound = (int32_t) (750 / yKI);
+
 	//data
 	vector<Coor> centre;
 	Coor beacon;
@@ -219,11 +262,11 @@ int main(void)
 	if (mode == 0)
 	{
 
-		while(!startTheDroneProcess)
-		{
-			ledP[2]->Switch();
-			System::DelayMs(20);
-		}
+		// while(!startTheDroneProcess)
+		// {
+		// 	ledP[2]->Switch();
+		// 	System::DelayMs(20);
+		// }
 
 		ledP[2]->SetEnable(false);
 
@@ -292,6 +335,7 @@ int main(void)
 
 	#ifdef DRONE_ONE
 				determinePts(centre, carH, carT, beacon);
+				servoControl(carH, carT);
 	#endif //end of DRONE_ONE
 
 
@@ -339,7 +383,7 @@ int main(void)
 
 				{
 					Byte imageByte[] = {170};
-					bluetoothP[1]->SendBuffer(&imageByte, 1);
+					bluetoothP[1]->SendBuffer(imageByte, 1);
 				}
 				bluetoothP[1]->SendBuffer(cameraBuffer, CAM_W * CAM_H / 8);
 
@@ -771,6 +815,46 @@ void boundAngle(float& angle)
 	{
 		angle -= 360;
 	}
+}
+
+void servoControl(const Coor& h, const Coor& t)
+{
+	//some vaild corrdinate
+	if (h != Coor() && t != Coor())
+	{
+		Coor carCentre((h.x + t.x) / 2, (h.y + h.y) / 2);
+
+		int32_t xOutput = servoPid[0].output(CAM_W / 2, carCentre.x);
+		int32_t yOutput = servoPid[1].output(CAM_H / 2, carCentre.y);
+
+		servoMoveTo(-xOutput, -yOutput);
+	}
+}
+
+void servoMoveTo(const int32_t& xDeg, const int32_t& yDeg)
+{
+	int32_t xTo = X_DIR_SERVO_MID + xDeg;
+	int32_t yTo = Y_DIR_SERVO_MID + yDeg;
+
+	//servo bound
+	if (xTo > X_DIR_SERVO_MAX)
+	{
+		xTo = X_DIR_SERVO_MAX;
+	} else if (xTo < X_DIR_SERVO_MIN)
+	{
+		xTo = X_DIR_SERVO_MIN;
+	}
+
+	if (yTo > Y_DIR_SERVO_MAX)
+	{
+		yTo = Y_DIR_SERVO_MAX;
+	} else if (yTo < Y_DIR_SERVO_MIN)
+	{
+		yTo = Y_DIR_SERVO_MIN;
+	}
+
+	servoP[0]->SetDegree(xTo);
+	servoP[1]->SetDegree(yTo);
 }
 
 float angleTracking(Coor carT, Coor carH)

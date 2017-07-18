@@ -41,6 +41,7 @@
 #include <libsc/us_100.h>
 #include <libsc/encoder.h>
 #include <libsc/dir_encoder.h>
+#include <libsc/passive_buzzer.h>
 #include <math.h>
 
 
@@ -101,7 +102,7 @@ struct vec
 
 #define CAM_W 80
 #define CAM_H 60
-//#define ENABLE_LCD
+#define ENABLE_LCD
 #define DISTANCE_CHECK 20
 #define DATA_WIDTH 4
 const float countConstant = 100000;
@@ -221,6 +222,15 @@ int main(void)
 {
 	System::Init();
 
+	//	--------------------------------motor
+	DirMotor::Config motor_Config;
+	motor_Config.id=0;
+	DirMotor motorL(motor_Config);
+	motorLP = &motorL;
+	motor_Config.id=1;
+	DirMotor motorR(motor_Config);
+	motorRP = &motorR;
+	motorSetPower(160, 160);
 
 
 	//---------------------------------button
@@ -282,9 +292,9 @@ int main(void)
 	JyMcuBt106 bt2(bluetoothC);
 	bluetoothP[1] = &bt2;
 
-	//--------------------------------mpu
-	Mpu6050 mpu(getMpuConfig());
-	mpuP = &mpu;
+//	//--------------------------------mpu
+//	Mpu6050 mpu(getMpuConfig());
+//	mpuP = &mpu;
 
 //	//--------------------------------joysick
 //	Joystick js(getJoystickConfig(0));
@@ -296,15 +306,6 @@ int main(void)
 	servo.SetDegree(SERVO_CENTRE);
 	servoP = &servo;
 
-//	--------------------------------motor
-	DirMotor::Config motor_Config;
-	motor_Config.id=0;
-	DirMotor motorL(motor_Config);
-	motorLP = &motorL;
-	motor_Config.id=1;
-	DirMotor motorR(motor_Config);
-	motorRP = &motorR;
-	motorSetPower(160, 160);
 
 //	--------------------------------encoder
 	DirEncoder::Config enc1;
@@ -316,6 +317,12 @@ int main(void)
 	enc2.id = 1;
 	DirEncoder encoderR(enc2);
 	encoderRP = &encoderR;
+
+//	PassiveBuzzer::Config buzzerCon;
+//	PassiveBuzzer buzzer(buzzerCon);
+//	buzzer.SetTexture(500);
+//	buzzer.SetNote(500);
+////	buzzer.SetBeep(true);
 
 // //	--------------------------------compass
 // 	Qmc5883::Config compassC;
@@ -539,11 +546,11 @@ int main(void)
 			}
 
 
-			//need to disable while testing with motor set power 0
-			if (beaconCarVeryClose == false)
-			{
-				dodgeObstacle();
-			}
+			// //need to disable while testing with motor set power 0
+			// if (beaconCarVeryClose == false)
+			// {
+			// 	dodgeObstacle();
+			// }
 
 		}//end if for checking time
 	}//end while loop
