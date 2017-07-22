@@ -42,6 +42,7 @@
 #include <libsc/encoder.h>
 #include <libsc/dir_encoder.h>
 #include <libsc/passive_buzzer.h>
+#include <libsc/us_100.h>
 #include <math.h>
 
 
@@ -183,7 +184,7 @@ std::string messageFromDrone;
 std::vector<int16_t> coorBuffer;
 
 //servo control
-float servoKP = 8;
+float servoKP = 7;
 float servoKD = 0;
 uint16_t servoOutput;
 
@@ -194,11 +195,18 @@ uint32_t timeForUltraR = 0;
 float rangeForUltraR = 0.0;
 
 //for dogging obstacle
+bool lockServo = false;
+bool usLSensed = false;
+bool usRSensed = true;
 int32_t distanceForLockServo = 0;
 uint8_t countForLockServoL = 0;
 uint8_t countForLockServoR = 0;
+
+//for move backward
 int32_t eReadingL = 0;
 int32_t eReadingR = 0;
+bool moveBack = false;
+bool moveForward = false;
 
 PID motorLControl;
 PID motorRControl;
@@ -207,9 +215,6 @@ bool startTheCarProcess = false;
 bool programEnd = false;
 
 bool irOn = false;
-bool lockServo = false;
-bool moveBack = false;
-bool moveForward = false;
 
 bool beaconCarVeryClose = false;
 
@@ -218,6 +223,8 @@ int32_t accEncR = 0;
 
 float compassAngle;
 
+
+///////////////////////////////////////////////////////This is for the car
 int main(void)
 {
 	System::Init();
@@ -318,6 +325,57 @@ int main(void)
 	DirEncoder encoderR(enc2);
 	encoderRP = &encoderR;
 
+
+	//--------------------------------ultra-sound
+	Gpi::Config echoC;
+	echoC.pin = libbase::k60::Pin::Name::kPtc11;
+	echoC.interrupt = Pin::Config::Interrupt::kBoth;
+	echoC.isr = [] (Gpi* gpi)
+	{
+		if (gpi->Get()) {
+			timeForUltraL =  System::TimeIn125us();
+		} else {
+			rangeForUltraL = System::TimeIn125us() - timeForUltraL;
+			rangeForUltraL *= 0.02125;
+			if ( (rangeForUltraL > 4.0) ) {
+				rangeForUltraL = 4.0;
+			}
+		}
+	};
+	Gpi ultraEchoL(echoC);
+
+	Gpo::Config triggerC;
+	triggerC.pin = libbase::k60::Pin::Name::kPtc10;
+	triggerC.is_high = false;
+	Gpo ultraTriggerL(triggerC);
+
+
+
+	echoC.pin = libbase::k60::Pin::Name::kPtb1;
+	echoC.interrupt = Pin::Config::Interrupt::kBoth;
+	echoC.isr = [] (Gpi* gpi)
+	{
+		if (gpi->Get()) {
+			timeForUltraR =  System::TimeIn125us();
+		} else {
+			rangeForUltraR = System::TimeIn125us() - timeForUltraR;
+			rangeForUltraR *= 0.02125;
+			if ( (rangeForUltraR > 4.0 ) ) {
+				rangeForUltraR = 4.0;
+			}
+		}
+	};
+	Gpi ultraEchoR(echoC);
+
+	triggerC.pin = libbase::k60::Pin::Name::kPtb0;
+	triggerC.is_high = false;
+	Gpo ultraTriggerR(triggerC);
+
+//	Us100::Config usC;
+//	usC.id = 0;
+//	Us100 ultra(usC);
+
+//	--------------------------------buzzer
 //	PassiveBuzzer::Config buzzerCon;
 //	PassiveBuzzer buzzer(buzzerCon);
 //	buzzer.SetTexture(500);
@@ -357,6 +415,7 @@ int main(void)
 // //	updateCompassAngle();
 // //	float compassAngleReference = compassAngle;
 
+	startTheCarProcess = true;
 	while(!startTheCarProcess)
 	{
 		ledP[0]->Switch();
@@ -375,6 +434,8 @@ int main(void)
 	if the angle calculation is running the led 1 will blink
 	*/
 
+	bool usOn = true;
+	bool usL = true;
 
 	uint32_t lastTime = System::Time();
 	while(true)
@@ -384,7 +445,98 @@ int main(void)
 			lastTime = System::Time();
 			ledP[0]->Switch();
 
+			//update encoder
+			//no need to update in the remaining code
+			encoderLP->Update();
+			encoderRP->Update();
 
+
+
+			if (usOn == true)
+			{
+				if (usL == true) {
+					//triggering ultrasonic
+					ultraTriggerL.Set();
+					uint32_t startTimeForUltra = System::TimeIn125us();
+					while(System::TimeIn125us() < startTimeForUltra + 2){;}
+					ultraTriggerL.Reset();
+
+					char rangeBuffer[50];
+					sprintf(rangeBuffer, "range L: %f,\n", rangeForUltraL);
+					bluetoothP[1]->SendStr(rangeBuffer);
+
+					usL = false;
+				} else {
+					//triggering ultrasonic
+					ultraTriggerR.Set();
+					uint32_t startTimeForUltra = System::TimeIn125us();
+					while(System::TimeIn125us() < startTimeForUltra + 2){;}
+					ultraTriggerR.Reset();
+
+					char rangeBuffer[50];
+					sprintf(rangeBuffer, "                  range R: %f,\n", rangeForUltraR);
+					bluetoothP[1]->SendStr(rangeBuffer);
+
+					usL = true;
+				}
+
+				usOn = false;
+			} else {
+				usOn = true;
+			}
+
+
+
+			if (rangeForUltraL < 0.50) {
+				ledP[3]->SetEnable(true);
+				usLSensed = true;
+			} else {
+				ledP[3]->SetEnable(false);
+				usLSensed = false;
+			}
+
+			if (rangeForUltraR < 0.50) {
+				ledP[2]->SetEnable(true);
+				usRSensed = true;
+			} else {
+				ledP[2]->SetEnable(false);
+				usRSensed = false;
+			}
+
+
+
+			if (lockServo == false)
+			{
+				//wait for obstacle
+				if (usLSensed || usRSensed)
+				{
+					//reset variable for this function
+					lockServo = true;
+					distanceForLockServo = 0;
+					if (usLSensed && usRSensed)
+					{
+						servoP->SetDegree(SERVO_RIGHT_LIMIT);
+					} else if (usLSensed)
+					{
+						servoP->SetDegree(SERVO_RIGHT_LIMIT);
+					} else if (usRSensed)
+					{
+						// servoP->SetDegree(SERVO_LEFT_LIMIT);
+						servoP->SetDegree(SERVO_RIGHT_LIMIT);
+					}
+				}
+			} else {
+				//dodging obstacle for a while
+				distanceForLockServo += ((encoderRP->GetCount() - encoderLP->GetCount()) / 2);
+
+				if (distanceForLockServo >= COUNT_FOR_ONE_METER / 36)
+				{
+					lockServo = false;
+
+					//this line need to delete later while running
+					servoP->SetDegree(SERVO_CENTRE);
+				}
+			}
 
 
 
@@ -432,125 +584,125 @@ int main(void)
 
 
 
-			//angle calculation
-			if ((beacon != Coor()) && carT != Coor())
-			{
-				ledP[1]->Switch();
-				Coor carCentre((carT.x + carH.x)/2, (carT.y + carH.y)/2);
-				int16_t dx = beacon.x - carCentre.x;
-				int16_t dy = beacon.y - carCentre.y;
+// 			//angle calculation
+// 			if ((beacon != Coor()) && carT != Coor())
+// 			{
+// 				ledP[1]->Switch();
+// 				Coor carCentre((carT.x + carH.x)/2, (carT.y + carH.y)/2);
+// 				int16_t dx = beacon.x - carCentre.x;
+// 				int16_t dy = beacon.y - carCentre.y;
 
-				//calculate local angle
-				uint32_t hyp = distanceSquare(carCentre, beacon);
-				if (hyp != 0)
-				{
-					if (dx == 0)
-					{
-						if (dy > 0)
-						{
-							carAngleError = 179.999999999;
-						} else
-						{
-							carAngleError = 0.0;
-						}
-					} else //dx != 0
-					{
-						float inputX = dx / Math::Sqrt2(hyp);
-						if (dy == 0)
-						{
-							if (dx > 0)
-							{
-								carAngleError = -90.0;
-							} else
-							{
-								carAngleError = 90.0;
-							}
-						} else if (dx > 0)
-						{
-							if (dy > 0)
-							{
-								carAngleError = Math::ArcSin(inputX);
-								carAngleError = carAngleError * 180 / PI;
-								carAngleError = -180 + carAngleError;
-							} else
-							{
-								carAngleError = Math::ArcSin(inputX);
-								carAngleError = carAngleError * 180 / PI;
-								carAngleError = -carAngleError;
-							}
-						} else
-						{
-							if (dy > 0)
-							{
-								carAngleError = Math::ArcSin(-inputX);
-								carAngleError = carAngleError * 180 / PI;
-								carAngleError = 180 - carAngleError;
-							} else
-							{
-								carAngleError = Math::ArcSin(-inputX);
-								carAngleError = carAngleError * 180 / PI;
-							}
-						}
-					}
+// 				//calculate local angle
+// 				uint32_t hyp = distanceSquare(carCentre, beacon);
+// 				if (hyp != 0)
+// 				{
+// 					if (dx == 0)
+// 					{
+// 						if (dy > 0)
+// 						{
+// 							carAngleError = 179.999999999;
+// 						} else
+// 						{
+// 							carAngleError = 0.0;
+// 						}
+// 					} else //dx != 0
+// 					{
+// 						float inputX = dx / Math::Sqrt2(hyp);
+// 						if (dy == 0)
+// 						{
+// 							if (dx > 0)
+// 							{
+// 								carAngleError = -90.0;
+// 							} else
+// 							{
+// 								carAngleError = 90.0;
+// 							}
+// 						} else if (dx > 0)
+// 						{
+// 							if (dy > 0)
+// 							{
+// 								carAngleError = Math::ArcSin(inputX);
+// 								carAngleError = carAngleError * 180 / PI;
+// 								carAngleError = -180 + carAngleError;
+// 							} else
+// 							{
+// 								carAngleError = Math::ArcSin(inputX);
+// 								carAngleError = carAngleError * 180 / PI;
+// 								carAngleError = -carAngleError;
+// 							}
+// 						} else
+// 						{
+// 							if (dy > 0)
+// 							{
+// 								carAngleError = Math::ArcSin(-inputX);
+// 								carAngleError = carAngleError * 180 / PI;
+// 								carAngleError = 180 - carAngleError;
+// 							} else
+// 							{
+// 								carAngleError = Math::ArcSin(-inputX);
+// 								carAngleError = carAngleError * 180 / PI;
+// 							}
+// 						}
+// 					}
 
-#ifdef ENABLE_LCD
-					char buffer[200];
-					//for testing new bluetooth code
-					lcdP->SetRegion(Lcd::Rect(0, 0, 128, 50));
-					sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d\n", beacon.x,
-						beacon.y, carH.x, carH.y, carT.x, carT.y);
-					writerP->WriteString(buffer);
+// #ifdef ENABLE_LCD
+// 					char buffer[200];
+// 					//for testing new bluetooth code
+// 					lcdP->SetRegion(Lcd::Rect(0, 0, 128, 50));
+// 					sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d\n", beacon.x,
+// 						beacon.y, carH.x, carH.y, carT.x, carT.y);
+// 					writerP->WriteString(buffer);
 
-					lcdP->SetRegion(Lcd::Rect(0, 60, 128, 50));
-					sprintf(buffer, "Error: %f\nAAngle: %f\n", carAngleError, angleTracking(carT, carH));
-					writerP->WriteString(buffer);
-#endif //ENABLE_LCD
-
-
-//						char buffer[100];
-//						sprintf(buffer, "%f\n", carAngleError);
-//						bluetoothP->SendStr(buffer);
-					carAngleError -= angleTracking(carT, carH);
-					boundAngle(carAngleError);
-// 						char buffer[100];
-// 						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
-// 						bluetoothP[1]->SendStr(buffer);
-
-					//may do something with the distance and speed
-				}
-			}
-
-			//must have for steering
-			if (moveBack == false && moveForward == false)
-			{
-				//control servo and motor
-				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKP
-					+ (carAngleError - carAngleErrorPrevious) * servoKD);
-
-				if (servoOutput > SERVO_LEFT_LIMIT)
-					servoOutput = SERVO_LEFT_LIMIT;
-				else if (servoOutput < SERVO_RIGHT_LIMIT)
-					servoOutput = SERVO_RIGHT_LIMIT;
-
-				carAngleErrorPrevious = carAngleError;
-				servo.SetDegree(servoOutput);
-				if (distanceSquare(carH, beacon) < 13 * 13)
-				{
-					motorSetPower(0, 0);
-					beaconCarVeryClose = true;
-				}else
-				{
-					motorSetPower(200, 200);
-					beaconCarVeryClose = false;
-				}
-			}
+// 					lcdP->SetRegion(Lcd::Rect(0, 60, 128, 50));
+// 					sprintf(buffer, "Error: %f\nAAngle: %f\n", carAngleError, angleTracking(carT, carH));
+// 					writerP->WriteString(buffer);
+// #endif //ENABLE_LCD
 
 
-			// //need to disable while testing with motor set power 0
-			// if (beaconCarVeryClose == false)
-			// {
-			// 	dodgeObstacle();
-			// }
+// //						char buffer[100];
+// //						sprintf(buffer, "%f\n", carAngleError);
+// //						bluetoothP->SendStr(buffer);
+// 					carAngleError -= angleTracking(carT, carH);
+// 					boundAngle(carAngleError);
+// // 						char buffer[100];
+// // 						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
+// // 						bluetoothP[1]->SendStr(buffer);
+
+// 					//may do something with the distance and speed
+// 				}
+// 			}
+
+// 			//must have for steering
+			// if (moveBack == false && moveForward == false && lockServo == false)
+// 			{
+// 				//control servo and motor
+// 				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKP
+// 					+ (carAngleError - carAngleErrorPrevious) * servoKD);
+
+// 				if (servoOutput > SERVO_LEFT_LIMIT)
+// 					servoOutput = SERVO_LEFT_LIMIT;
+// 				else if (servoOutput < SERVO_RIGHT_LIMIT)
+// 					servoOutput = SERVO_RIGHT_LIMIT;
+
+// 				carAngleErrorPrevious = carAngleError;
+// 				servo.SetDegree(servoOutput);
+// 				if (distanceSquare(carH, beacon) < 13 * 13)
+// 				{
+// 					motorSetPower(0, 0);
+// 					beaconCarVeryClose = true;
+// 				} else
+// 				{
+// 					motorSetPower(200, 200);
+// 					beaconCarVeryClose = false;
+// 				}
+// 			}
+
+
+// 			// //need to disable while testing with motor set power 0
+// 			// if (beaconCarVeryClose == false)
+// 			// {
+// 			// 	dodgeObstacle();
+// 			// }
 
 		}//end if for checking time
 	}//end while loop
@@ -712,8 +864,6 @@ void motorSetPower(int16_t pL, int16_t pR)
 void dodgeObstacle()
 {
 	//update encoder
-	encoderLP->Update();
-	encoderRP->Update();
 	eReadingL = encoderLP->GetCount();
 	eReadingR = (-encoderRP->GetCount());
 
