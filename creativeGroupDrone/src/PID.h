@@ -6,20 +6,29 @@
 class PID
 {
 	int32_t errorSum;
-	int32_t errorSumBound;
 	int32_t preError;
 	void accuError(const int32_t& e)
 	{
+		//assume errorSumBound always positive
 		if((errorSum + e) > errorSumBound)
+		{
 			errorSum = errorSumBound;
-		else
+		} else if((errorSum + e) < -errorSumBound)
+		{
+			errorSum = -errorSumBound;
+		} else
+		{
 			errorSum += e;
+		}
 	}
 
 public:
 	float kP;
 	float kI;
 	float kD;
+
+	//assume errorSumBound always positive
+	int32_t errorSumBound;
 
 	PID()
 	:kP(0), kI(0), kD(0), errorSum(0), errorSumBound(0), preError(0){}

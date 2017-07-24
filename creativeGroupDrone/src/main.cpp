@@ -60,10 +60,9 @@ using namespace libutil;
 
 //
 
-#define CAM_W 240
-#define CAM_H 180
-#define CAM_W2 80
-#define CAM_H2 60
+#define CAM_W 160
+#define CAM_H 120
+
 
 uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 
@@ -79,11 +78,10 @@ void getWorldBit(bool destImage[CAM_W2][CAM_H2], bool rawImage[CAM_W][CAM_H])
 		{	destImage[x][y] = rawImage[transformMatrix[x][y][0]][transformMatrix[x][y][1]];	}
 	}
 }
-
 */
 
 void imageConversion(bool des[CAM_W][CAM_H], Byte src[CAM_W * CAM_H / 8]);
-void imageConversionBack(Byte des[CAM_W2 * CAM_H2 / 8], bool src[CAM_W2][CAM_H2]);
+void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H]);
 //void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H]);
 
 void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H]);
@@ -128,7 +126,7 @@ bool runFlag = 0;
 uint8_t prevCentreCount = 0;
 
 //Byte cameraBuffer[CAM_W * CAM_H / 8];
-Byte cameraBuffer2[CAM_W2 * CAM_H2 / 8];
+Byte cameraBuffer2[CAM_W * CAM_H / 8];
 const Byte* cameraBuffer;
 
 //get bit value from camerabuf using camera coordinate system
@@ -193,7 +191,7 @@ int main(void)
 //	Byte cameraBuffer[CAM_W * CAM_H / 8];
 	bool boolImage[CAM_W][CAM_H];
 	bool boolImageFiltered[CAM_W][CAM_H];
-	bool boolImageWorld[CAM_W2][CAM_H2];
+	bool boolImageWorld[CAM_W][CAM_H];
 	vector<Coor> centre;
 
 	Coor beacon;
@@ -221,7 +219,7 @@ int main(void)
 	uint32_t lastTime = System::Time();
 	while(true)
 	{
-		if( ( System::Time() - lastTime ) >= 150)
+		if( ( System::Time() - lastTime ) >= 500)
 		{
 			lastTime = System::Time();
 
@@ -232,9 +230,9 @@ int main(void)
 			cameraP->UnlockBuffer();
 
 			//formatting to boolean form
-			for (int j = 0; j < CAM_H2; j++)
+			for (int j = 0; j < CAM_H; j++)
 			{
-				for (int i = 0; i < CAM_W2; i++)
+				for (int i = 0; i < CAM_W; i++)
 				{
 					boolImageWorld[i][j] = getWorldBit(i,j);
 				}
@@ -245,6 +243,14 @@ int main(void)
 			//formatting to Byte from
 	//		imageConversionBack(cameraBuffer, boolImage);
 			imageConversionBack(cameraBuffer2, boolImageWorld);
+
+			{
+				Byte startByte[] = {170};
+				bluetoothP->SendBuffer(startByte, 1);
+
+				bluetoothP->SendBuffer(cameraBuffer2, CAM_W * CAM_H / 8);
+
+			}
 /*
 #ifdef ENABLE_LCD
 			//print camera image easy version
@@ -254,7 +260,7 @@ int main(void)
 			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
 #endif
 */
-
+/*
 #ifdef	ENABLE_LCD
 			//print camera image easy version
 			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W2, CAM_H2));
@@ -262,7 +268,7 @@ int main(void)
 			//White = 0xFFFF = white in real
 			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer2, CAM_W2 * CAM_H2);
 #endif
-
+*/
 
 			//find centre of white regions
 //			centreFinder(centre, boolImage); // boolImageFiltered
@@ -275,7 +281,6 @@ int main(void)
 			sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
 			writerP->WriteString(buffer);
 #endif
-
 			//indicate the centre of white regions with red little square
 			if(centre.size()>0)
 			{
@@ -303,8 +308,6 @@ int main(void)
 
 			//send the two coordinates in preCentre to the Car with the first one the Car, the second one the Beacon
 /*			sendSignal(beacon, carH, carT);
-
-
 #ifdef ENABLE_LCD
 			lcdP->SetRegion(Lcd::Rect(3 + beacon.x, 2 + beacon.y, 3, 3));
 			lcdP->FillColor(St7735r::kPurple);
@@ -312,16 +315,13 @@ int main(void)
 			lcdP->FillColor(St7735r::kBlue);
 			lcdP->SetRegion(Lcd::Rect(3 + carT.x, 2 + carT.y, 3, 3));
 			lcdP->FillColor(St7735r::kCyan);
-
 			lcdP->SetRegion(Lcd::Rect(0, 120, 128, 50));
 			sprintf(buffer, "beacon V %d %d", beacon.x, beacon.y);
 			writerP->WriteString(buffer);
-
 			lcdP->SetRegion(Lcd::Rect(0, 140, 128, 50));
 			sprintf(buffer, "carH B %d %d", carH.x, carH.y);
 			writerP->WriteString(buffer);
 #endif
-
 			centre.clear();
 */
 		}//end if for checking time
@@ -342,20 +342,19 @@ void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H])
 {
 	for(uint16_t i = 0; i < CAM_H * CAM_W / 8; i++)
 		des[i] = 0;
-
 	for(uint16_t i = 0; i < CAM_H; i++)
 		for(uint16_t j = 0; j < CAM_W; j++)
 			des[ (i * CAM_W + j) / 8 ] = ( src[j][i] << (7 - j % 8) ) | des[(i * CAM_W + j) / 8];
 }
 */
-void imageConversionBack(Byte des[CAM_W2 * CAM_H2 / 8], bool src[CAM_W2][CAM_H2])
+void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H])
 {
-	for(uint16_t i = 0; i < CAM_H2 * CAM_W2 / 8; i++)
+	for(uint16_t i = 0; i < CAM_H * CAM_W / 8; i++)
 		des[i] = 0;
 
-	for(uint16_t i = 0; i < CAM_H2; i++)
-		for(uint16_t j = 0; j < CAM_W2; j++)
-			des[ (i * CAM_W2 + j) / 8 ] = ( src[j][i] << (7 - j % 8) ) | des[(i * CAM_W2 + j) / 8];
+	for(uint16_t i = 0; i < CAM_H; i++)
+		for(uint16_t j = 0; j < CAM_W; j++)
+			des[ (i * CAM_W + j) / 8 ] = ( src[j][i] << (7 - j % 8) ) | des[(i * CAM_W + j) / 8];
 }
 void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 {
@@ -686,13 +685,11 @@ uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H])
 	uint8_t yLimit = 40;
 	uint8_t countPixel = 1;
 	bool countFlag = true;
-
 	//	+ve x
 	while (countFlag == true)
 	{
 		if (target.x + countPixel > (CAM_W - 1))
 		{	countFlag = false;	}
-
 		else
 		{
 			if (inputImage[target.x + countPixel][target.y] == 0)
@@ -709,13 +706,11 @@ uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H])
 	}
 	countPixel = 1;
 	countFlag = true;
-
 	//	-ve x
 	while (countFlag == true)
 	{
 		if (target.x - countPixel < 0)
 		{	countFlag = false;	}
-
 		else
 		{
 			if (inputImage[target.x - countPixel][target.y] == 0)
@@ -732,13 +727,11 @@ uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H])
 	}
 	countPixel = 1;
 	countFlag = true;
-
 	//	+ve y
 	while (countFlag == true)
 	{
 		if (target.y + countPixel > (CAM_H - 1))
 		{	countFlag = false;	}
-
 		else
 		{
 			if (inputImage[target.x][target.y + countPixel] == 0)
@@ -755,13 +748,11 @@ uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H])
 	}
 	countPixel = 1;
 	countFlag = true;
-
 	//	-ve y
 	while (countFlag == true)
 	{
 		if (target.y + countPixel < 0)
 		{	countFlag = false;	}
-
 		else
 		{
 			if (inputImage[target.x][target.y - countPixel] == 0)
@@ -778,7 +769,6 @@ uint16_t calSize(Coor& target, bool inputImage[CAM_W][CAM_H])
 	}
 	return 1 + xCount + yCount;
 }
-
 bool compareSize(Coor& newH, Coor& newT, bool inputImage[CAM_W][CAM_H])
 {
 	// false -> need to swap H and T
@@ -788,7 +778,6 @@ bool compareSize(Coor& newH, Coor& newT, bool inputImage[CAM_W][CAM_H])
 	{	return true;	}
 	else {	return false;	}
 }
-
 void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool inputImage[CAM_W][CAM_H])
 {
 	uint8_t cCount = pts.size();
@@ -797,14 +786,11 @@ void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool 
 		uint16_t d1 = squaredDistance(pts[0], pts[1]);
 		uint16_t d2 = squaredDistance(pts[0], pts[2]);
 		uint16_t d3 = squaredDistance(pts[1], pts[2]);
-
 		uint16_t shortestD = d1;			// pt 0/1 are car
-
 		if(shortestD > d2)
 		{	shortestD = d2;	}				// pt 0/2 are car
 		if(shortestD > d3)
 		{	shortestD = d3;	}				// pt 1/2 are car
-
 		if (shortestD == d1)
 		{
 			if (compareSize(pts[0], pts[1], inputImage) == true )
@@ -819,7 +805,6 @@ void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool 
 			}
 			beacon = pts[2];
 		}
-
 		else if (shortestD == d2)
 		{
 			if (compareSize(pts[0], pts[2], inputImage) == true )
@@ -850,7 +835,6 @@ void determineCar(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon, bool 
 		}
 	}
 }
-
 bool switchBeacon(Coor bn, Coor Cr)
 {
 	if (((Cr.x- bn.x) * (Cr.x- bn.x) + (Cr.y- bn.y) * (Cr.y- bn.y)) < (8 * 8))
@@ -1020,7 +1004,7 @@ k60::Ov7725::Config getCameraConfig()
 UartDevice::Config getBluetoothConfig()
 {
 	UartDevice::Config c;
-	c.id = 0;
+	c.id = 1;
 	c.baud_rate = Uart::Config::BaudRate::k115200;
 	c.rx_irq_threshold = 1;
 	c.rx_isr = bluetoothListener;
