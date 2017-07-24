@@ -13,8 +13,10 @@
 #include <vector>
 #include <queue>
 #include <cstdint>
+#include <cmath>
 #include "Coor.h"
 #include "PID.h"
+#include "img.h"
 #include <libbase/k60/mcg.h>
 #include <libsc/system.h>
 #include <libsc/led.h>
@@ -60,8 +62,8 @@ using namespace libsc::k60;
 using namespace libutil;
 
 
-//#define CAM_W 80
-//#define CAM_H 60
+ // #define CAM_W 80
+ // #define CAM_H 60
 
 #define CAM_W 160
 #define CAM_H 120
@@ -77,8 +79,6 @@ uint8_t MEAN_FILTER_WINDOW_SIZE = 3;	//window size should be odd
 #define DISTANCE_CHECK 30
 
 // #define FAR_DISTANCE 8
-
-#define NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO 18
 
 #define DRONE_TWO_TRANS_X 3
 #define DRONE_TWO_TRANS_Y 3
@@ -126,6 +126,10 @@ void servoControl(const Coor& h, const Coor& t);
 
 void servoMoveTo(const int32_t& xDeg, const int32_t& yDeg);
 
+void servoStablizer();
+
+
+
 
 k60::Ov7725::Config getCameraConfig();
 UartDevice::Config getBluetoothConfig();
@@ -147,7 +151,14 @@ JyMcuBt106* bluetoothP[2];
 Joystick* joystickP;
 LcdTypewriter* writerP;
 TowerProMg995* servoP[2];
+Mpu6050* mpuP;
 
+
+
+Byte cameraBuffer2[CAM_W * CAM_H / 8];
+const Byte* cameraBuffer;
+bool boolImageFiltered[CAM_W][CAM_H];
+bool boolImageWorld[CAM_W][CAM_H];
 
 bool runFlag = 0;
 uint8_t prevCentreCount = 0;
@@ -161,11 +172,10 @@ bool startFlag = false;
 string messageFromDrone;
 vector<int16_t> coorBuffer;
 vector<uint16_t> regionSize;
-
-const Byte* cameraBuffer;
-//Byte cameraBufferFiltered[CAM_W * CAM_H / 8];
-bool boolImage[CAM_W][CAM_H];
-//bool boolImageFiltered[CAM_W][CAM_H];
+vector<Coor> centre;
+Coor beacon;
+Coor carH;
+Coor carT;
 
 
 //mode 0: normal racing
@@ -186,6 +196,38 @@ PID servoPid[2] = {PID(xKP, xKI, xKD), PID(yKP, yKI, yKD)};
 
 
 
+
+//get bit value from camerabuf using camera coordinate system
+bool getBit(int i_x, int i_y){
+	if (i_x<=0 || i_x>CAM_W-1 || i_y <= 0 || i_y > CAM_H-1) return -1;
+	return cameraBuffer[i_y*CAM_W/8 + i_x/8] >> (7 - (i_x%8)) & 1;
+}
+
+//get bit using world coordinate system
+bool getWorldBit(int w_x, int w_y){
+	int i_x,i_y;
+	i_x = transformMatrix[w_x][w_y][0];
+	i_y = transformMatrix[w_x][w_y][1];
+	return getBit(i_x,i_y);
+}
+
+
+//Loop
+uint32_t startTime;
+long prevSampleTime;
+double dt = 0;
+long currentTime = 0;
+long loopCounter = 0;
+
+//Angle
+double acc[3], gyro[3];
+double accbine = 0;
+double accAngX = 0, accAngY = 0;
+double anvX = 0, anvY = 0;
+double gyroAngX = 0, gyroAngY = 0;
+double angleX = 90, angleY = 90;
+double servoAngX = 0, servoAngY = 0;
+bool state = 0;
 
 ///////////////////////////////////////////////////////This is for the drone
 int main(void)
@@ -248,11 +290,16 @@ int main(void)
 	servoPid[0].errorSumBound = (int32_t) (750 / xKI);
 	servoPid[1].errorSumBound = (int32_t) (750 / yKI);
 
+	//--------------------------------mpu6050
+	Mpu6050::Config mpuConfig;
+	mpuConfig.gyro_range=Mpu6050::Config::Range::kSmall;
+	mpuConfig.accel_range=Mpu6050::Config::Range::kSmall;
+	Mpu6050 mpu(mpuConfig);
+	mpuP = &mpu;
+
 	//data
-	vector<Coor> centre;
-	Coor beacon;
-	Coor carH;
-	Coor carT;
+//	bool boolImage[CAM_W][CAM_H];
+
 
 	cameraP->Start();
 
@@ -262,11 +309,12 @@ int main(void)
 	if (mode == 0)
 	{
 
-		// while(!startTheDroneProcess)
-		// {
-		// 	ledP[2]->Switch();
-		// 	System::DelayMs(20);
-		// }
+		startTheDroneProcess = true;
+		while(!startTheDroneProcess)
+		{
+			ledP[2]->Switch();
+			System::DelayMs(20);
+		}
 
 		ledP[2]->SetEnable(false);
 
@@ -281,18 +329,23 @@ int main(void)
 				lastTime = System::Time();
 				ledP[3]->Switch();
 
+				servoStablizer();
+
 				//update camera image
 				cameraBuffer = cameraP->LockBuffer();
 				cameraP->UnlockBuffer();
 
-				// {
-				// 	const Byte imageByte = 170;
-				// 	bluetoothP->SendBuffer(&imageByte, 1);
-				// }
-				// bluetoothP->SendBuffer(cameraBuffer, CAM_W * CAM_H / 8);
-
 				//formatting to boolean form
-				imageConversion(boolImage, cameraBuffer);
+				for (int j = 0; j < CAM_H; j++)
+				{
+					for (int i = 0; i < CAM_W; i++)
+					{
+						boolImageWorld[i][j] = getWorldBit(i,j);
+					}
+				}
+
+				//formatting to Byte from
+				imageConversionBack(cameraBuffer2, boolImageWorld);
 
 	//			//filtering
 	//			meanFilter(boolImageFiltered, boolImage);
@@ -300,24 +353,24 @@ int main(void)
 	//			//formatting to Byte from
 	//			imageConversionBack(cameraBufferFiltered, boolImageFiltered);
 
-	#ifdef ENABLE_LCD
-				// //print camera image easy version
-				// lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
-				// //0 = white ************** in camera image
-				// //White = 0xFFFF = white in real
-				// lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
-	#endif //end of ENABLE_LCD
+	// #ifdef ENABLE_LCD
+	// 			//print camera image easy version
+	// 			lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
+	// 			//0 = white ************** in camera image
+	// 			//White = 0xFFFF = white in real
+	// 			lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
+	// #endif //end of ENABLE_LCD
 
 				//find centre of white regions
-				centreFinder(centre, boolImage);
+				centreFinder(centre, boolImageWorld);
 
-	#ifdef ENABLE_LCD
-				//for print no. of centre out
-				lcdP->SetRegion(Lcd::Rect(0,100,128,50));
-				char buffer[50];
-				sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
-				writerP->WriteString(buffer);
-	#endif //end of ENABLE_LCD
+	// #ifdef ENABLE_LCD
+	// 			//for print no. of centre out
+	// 			lcdP->SetRegion(Lcd::Rect(0,100,128,50));
+	// 			char buffer[50];
+	// 			sprintf(buffer, "no.: %d   %d", centre.size(), MEAN_FILTER_WINDOW_SIZE);
+	// 			writerP->WriteString(buffer);
+	// #endif //end of ENABLE_LCD
 
 	// 			//indicate the centre of white regions with red little square
 	// 			if(centre.size()>0)
@@ -333,10 +386,8 @@ int main(void)
 	// 				}
 	// 			}
 
-	#ifdef DRONE_ONE
 				determinePts(centre, carH, carT, beacon);
 				servoControl(carH, carT);
-	#endif //end of DRONE_ONE
 
 
 				// //signal from the car to reset the data in the drone
@@ -370,23 +421,74 @@ int main(void)
 	} else if (mode == 1)
 	{
 		uint32_t lastTime = System::Time();
+		// uint8_t loopCounter = 0;
+		// uint16_t bigLoopTime = 500;
+		// uint16_t smallLoopTime = 10;
 		while(true)
 		{
-			if( ( System::Time() - lastTime ) >= 200)
+			if (( System::Time() - lastTime ) >= 500)
 			{
 				lastTime = System::Time();
-				ledP[3]->Switch();
+				// loopCounter++;
+				// servoStablizer();
+				// if (loopCounter == (bigLoopTime / smallLoopTime))
+				// {
+					ledP[3]->Switch();
 
-				//update camera image
-				cameraBuffer = cameraP->LockBuffer();
-				cameraP->UnlockBuffer();
+					//update camera image
+					cameraBuffer = cameraP->LockBuffer();
+					cameraP->UnlockBuffer();
 
-				{
-					Byte imageByte[] = {170};
-					bluetoothP[1]->SendBuffer(imageByte, 1);
-				}
-				bluetoothP[1]->SendBuffer(cameraBuffer, CAM_W * CAM_H / 8);
 
+					//formatting to boolean form
+					for (int j = 0; j < CAM_H; j++)
+					{
+						for (int i = 0; i < CAM_W; i++)
+						{
+							boolImageWorld[i][j] = getWorldBit(i,j);
+						}
+					}
+
+
+
+					 // //print camera image easy version
+					 // lcdP->SetRegion(Lcd::Rect(3, 2, CAM_W, CAM_H));
+					 // //0 = white ************** in camera image
+					 // //White = 0xFFFF = white in real
+					 // lcdP->FillBits(0x0000, 0xFFFF, cameraBuffer, CAM_W * CAM_H);
+
+
+					// meanFilter(boolImageFiltered, boolImageWorld);
+
+					//formatting to Byte from
+					imageConversionBack(cameraBuffer2, boolImageWorld);
+
+					//find centre of white regions
+					centreFinder(centre, boolImageWorld);
+
+
+					determinePts(centre, carH, carT, beacon);
+
+					// //send camera image
+					// {
+					// 	Byte imageByte[] = {170};
+					// 	bluetoothP[1]->SendBuffer(imageByte, 1);
+					// }
+					// bluetoothP[1]->SendBuffer(cameraBuffer2, CAM_W * CAM_H / 8);
+
+					//send car coordinate
+
+					{
+						Byte coorByte[] = {85};
+						bluetoothP[1]->SendBuffer(coorByte, 1);
+
+						char coorBuffer[100];
+						sprintf(coorBuffer, "1.0,%d,%d,%d,%d,%d\n", carH.x, carH.y, carT.x, carT.y, centre.size());
+						bluetoothP[1]->SendStr(coorBuffer);
+					}
+				centre.clear();
+
+				// }
 			}//end if for checking time
 		}//end while loop
 	}
@@ -414,20 +516,20 @@ void imageConversionBack(Byte des[CAM_W * CAM_H / 8], bool src[CAM_W][CAM_H])
 void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 {
 	//init a sum array
-	uint8_t sum[CAM_W - MEAN_FILTER_WINDOW_SIZE + 1];
+	uint16_t sum[CAM_W - MEAN_FILTER_WINDOW_SIZE + 1];
 	for(uint16_t j = 0; j < CAM_W - MEAN_FILTER_WINDOW_SIZE + 1; j++)
 		sum[j] = 0;
 
 	//calculate sum[0]
-	for(uint8_t a = 0; a < MEAN_FILTER_WINDOW_SIZE; a++)
+	for(uint16_t a = 0; a < MEAN_FILTER_WINDOW_SIZE; a++)
 		for(uint8_t b = 0; b < MEAN_FILTER_WINDOW_SIZE; b++)
 			sum[0] += in[a][b];
 
 	//calculate the rest sum along x direction
-	for(uint8_t a = 1; a < CAM_W - MEAN_FILTER_WINDOW_SIZE + 1; a++)
+	for(uint16_t a = 1; a < CAM_W - MEAN_FILTER_WINDOW_SIZE + 1; a++)
 	{
 		sum[a] = sum[a - 1];
-		for(uint8_t b = 0; b < MEAN_FILTER_WINDOW_SIZE; b++)
+		for(uint16_t b = 0; b < MEAN_FILTER_WINDOW_SIZE; b++)
 			sum[a] = sum[a] - in[a - 1][b] + in[a + MEAN_FILTER_WINDOW_SIZE - 1][b];
 	}
 
@@ -438,7 +540,7 @@ void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 		if(i > MEAN_FILTER_WINDOW_SIZE / 2)
 			//update mean for the row
 			for (uint16_t k = 0; k < CAM_W - MEAN_FILTER_WINDOW_SIZE + 1; k++)
-				for(uint8_t l = 0; l < MEAN_FILTER_WINDOW_SIZE; l++)
+				for(uint16_t l = 0; l < MEAN_FILTER_WINDOW_SIZE; l++)
 					sum[k] = sum[k] - in[k + l][i - 1 - MEAN_FILTER_WINDOW_SIZE / 2]
 									+ in[k + l][i + MEAN_FILTER_WINDOW_SIZE / 2];
 
@@ -547,6 +649,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 							bool xL = cur.x-1 > 0;
 							bool yU = cur.y-1 > 0;
 							bool yL = cur.y+1 < CAM_H;
+
 
 							//check whether the near point is white
 							//if yes, push it in startingPoint, clear the corresponding coordinate in white
@@ -661,10 +764,6 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 						uint64_t cenY = 0;
 						uint32_t base = qForStore.size();
 						regionSize.push_back(base);
-#ifndef DRONE_ONE
-						if(qForStore.size() > NO_OF_POINTS_OF_REGIONS_FOR_DRONE_TWO)
-							goto END_OF_IF_ONE_WHITE_POINT_IS_FOUND;
-#endif
 
 						for(uint16_t k = 0; k < base; k++)
 						{
@@ -674,7 +773,6 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 							cenY += tempCoor.y;
 						}
 						cen.push_back(Coor(cenX/base, cenY/base));
-END_OF_IF_ONE_WHITE_POINT_IS_FOUND:
 						;
 					}//end of if one white point is found
 				}
@@ -765,7 +863,7 @@ void determinePts(vector<Coor>& pts, Coor& carH, Coor& carT, Coor& beacon)
 	} else if (cCount == 2)
 	{
 		//if the two points are close, set them to be the car
-		if (squaredDistance(pts[0], pts[1]) < CLOSE_TO_BEACON_DISTANCE * CLOSE_TO_BEACON_DISTANCE)
+		if (squaredDistance(pts[0], pts[1]) <= CLOSE_TO_BEACON_DISTANCE * CLOSE_TO_BEACON_DISTANCE)
 		{
 			if (regionSize[0] < regionSize[1])
 			{
@@ -976,13 +1074,42 @@ void translatePoints(vector<Coor>& c)
 	}
 }
 
+void servoStablizer()
+{
+
+	//time interval
+	dt = (double)(System::Time()-prevSampleTime)/1000;
+	prevSampleTime = System::Time();
+
+	//angle
+	mpuP->Update(1);
+	acc[0] = mpuP->GetAccel()[0]-1177;
+	acc[1] = mpuP->GetAccel()[1]-1199;
+	acc[2] = mpuP->GetAccel()[2]+4999;
+	gyro[0] = mpuP->GetOmega()[0]+69;
+	gyro[1] = mpuP->GetOmega()[1]+18;
+	gyro[2] = mpuP->GetOmega()[2]+28;
+	accbine = sqrt(acc[0]*acc[0] + acc[1]*acc[1] + acc[2]*acc[2]);
+	accAngX = (acos(acc[0]/accbine)*180)/3.1415;
+	accAngY = (acos(acc[1]/accbine)*180)/3.1415;
+	anvX = gyro[0]/160/131;
+	anvY = gyro[1]/160/131;
+	gyroAngX = angleX - anvY*dt;
+	gyroAngY = angleY + anvX*dt;
+	angleX = abs((0.98*gyroAngX)+(0.02*accAngX));
+	angleY = abs((0.98*gyroAngY)+(0.02*accAngY));
+	servoAngY = asin(sin((90-angleX)/180*3.1415)/sin(angleY/180*3.1415))/3.1415*180 + 3;
+	servoAngX = 90 - angleY + 8;
+	servoMoveTo(-servoAngX*7.7, servoAngY*7.7);
+}
+
 k60::Ov7725::Config getCameraConfig()
 {
 	k60::Ov7725::Config c;
 	c.id = 0;
 	c.w = CAM_W;
 	c.h = CAM_H;
-	c.fps = k60::Ov7725Configurator::Config::Fps::kMid;
+	c.fps = k60::Ov7725Configurator::Config::Fps::kHigh;
 
 //	c.contrast = 0x10;
 //	c.brightness = 0x43;
@@ -1007,7 +1134,6 @@ k60::Ov7725::Config getCameraConfig()
 //	return c;
 //}
 
-#ifdef DRONE_ONE
 bool bluetoothListenerOne(const Byte* data, const size_t size)
 {
 	if(*data == 'g')
@@ -1025,43 +1151,6 @@ bool bluetoothListenerTwo(const Byte* data, const size_t size)
 {
 	return true;
 }
-#endif
-
-#ifndef DRONE_ONE
-bool bluetoothListener(const Byte* data, const size_t size)
-{
-	ledP[3]->Switch();
-	if( (*data <= '9' && *data >= '0') || *data == ',' || *data == 's' || *data == 'e')
-	{
-		if(*data == 's')
-		{
-	//		std::string temp;
-	//		temp += *data;
-	//		temp += '\n';
-	//		bluetoothP->SendStr(temp);
-			startFlag = true;
-		}else if(*data == 'e')
-		{
-			beacon = Coor(coorBuffer[0], coorBuffer[1]);
-			car = Coor(coorBuffer[2], coorBuffer[3]);
-			coorBuffer.clear();
-			startFlag = false;
-
-			//update the beacon coordinate by history
-//			carLocate();
-		}else if(*data == ',')
-		{
-			int32_t tempCoordinate = stoi(messageFromDrone);
-			coorBuffer.push_back(tempCoordinate);
-			messageFromDrone.clear();
-		}else if(startFlag == true)
-		{
-			messageFromDrone += *data;
-		}
-	}
-	return true;
-}
-#endif
 
 St7735r::Config getLcdConfig()
 {
@@ -1083,11 +1172,11 @@ Joystick::Config getJoystickConfig(uint8_t _id)
 		c.listener_triggers[i] = c.Trigger::kDown;
 	c.handlers[0] = [](const uint8_t id, const Joystick::State which)
 		{
-			MEAN_FILTER_WINDOW_SIZE++;
+//			MEAN_FILTER_WINDOW_SIZE++;
 		};
 	c.handlers[1] = [](const uint8_t id, const Joystick::State which)
 		{
-			MEAN_FILTER_WINDOW_SIZE--;
+//			MEAN_FILTER_WINDOW_SIZE--;
 		};
 	c.handlers[2] = [](const uint8_t id, const Joystick::State which)
 		{

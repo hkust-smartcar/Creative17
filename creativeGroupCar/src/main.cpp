@@ -256,11 +256,11 @@ int main(void)
 //							}
 						};
 
-	//---------------------------------irLedSwitch
-	Gpo::Config gpoC;
-	gpoC.pin = libbase::k60::Pin::Name::kPta4;
-	Gpo ir(gpoC);
-	ir.Reset();
+	// //---------------------------------irLedSwitch
+	// Gpo::Config gpoC;
+	// gpoC.pin = libbase::k60::Pin::Name::kPta4;
+	// Gpo ir(gpoC);
+	// ir.Reset();
 
 	//---------------------------------led
 	Led::Config c;
@@ -421,7 +421,7 @@ int main(void)
 		ledP[0]->Switch();
 		ledP[1]->Switch();
 		ledP[2]->Switch();
-		bluetoothP[0]->SendStr("g");
+		bluetoothP[1]->SendStr("g");
 		System::DelayMs(20);
 	}
 
@@ -452,8 +452,8 @@ int main(void)
 
 
 
-			if (usOn == true)
-			{
+			// if (usOn == true)
+			// {
 				if (usL == true) {
 					//triggering ultrasonic
 					ultraTriggerL.Set();
@@ -461,9 +461,9 @@ int main(void)
 					while(System::TimeIn125us() < startTimeForUltra + 2){;}
 					ultraTriggerL.Reset();
 
-					char rangeBuffer[50];
-					sprintf(rangeBuffer, "range L: %f,\n", rangeForUltraL);
-					bluetoothP[1]->SendStr(rangeBuffer);
+					// char rangeBuffer[50];
+					// sprintf(rangeBuffer, "range L: %f,\n", rangeForUltraL);
+					// bluetoothP[1]->SendStr(rangeBuffer);
 
 					usL = false;
 				} else {
@@ -473,21 +473,21 @@ int main(void)
 					while(System::TimeIn125us() < startTimeForUltra + 2){;}
 					ultraTriggerR.Reset();
 
-					char rangeBuffer[50];
-					sprintf(rangeBuffer, "                  range R: %f,\n", rangeForUltraR);
-					bluetoothP[1]->SendStr(rangeBuffer);
+					// char rangeBuffer[50];
+					// sprintf(rangeBuffer, "                  range R: %f,\n", rangeForUltraR);
+					// bluetoothP[1]->SendStr(rangeBuffer);
 
 					usL = true;
 				}
 
 				usOn = false;
-			} else {
-				usOn = true;
-			}
+			// } else {
+			// 	usOn = true;
+			// }
 
 
 
-			if (rangeForUltraL < 0.50) {
+			if (rangeForUltraL < 0.65) {
 				ledP[3]->SetEnable(true);
 				usLSensed = true;
 			} else {
@@ -495,7 +495,7 @@ int main(void)
 				usLSensed = false;
 			}
 
-			if (rangeForUltraR < 0.50) {
+			if (rangeForUltraR < 0.65) {
 				ledP[2]->SetEnable(true);
 				usRSensed = true;
 			} else {
@@ -522,7 +522,7 @@ int main(void)
 					} else if (usRSensed)
 					{
 						// servoP->SetDegree(SERVO_LEFT_LIMIT);
-						servoP->SetDegree(SERVO_RIGHT_LIMIT);
+						servoP->SetDegree(SERVO_LEFT_LIMIT);
 					}
 				}
 			} else {
@@ -539,170 +539,148 @@ int main(void)
 			}
 
 
+			//angle calculation
+			if ((beacon != Coor()) && carT != Coor())
+			{
+				ledP[1]->Switch();
+				Coor carCentre((carT.x + carH.x)/2, (carT.y + carH.y)/2);
+				int16_t dx = beacon.x - carCentre.x;
+				int16_t dy = beacon.y - carCentre.y;
+
+				//calculate local angle
+				uint32_t hyp = distanceSquare(carCentre, beacon);
+				if (hyp != 0)
+				{
+					if (dx == 0)
+					{
+						if (dy > 0)
+						{
+							carAngleError = 179.999999999;
+						} else
+						{
+							carAngleError = 0.0;
+						}
+					} else //dx != 0
+					{
+						float inputX = dx / Math::Sqrt2(hyp);
+						if (dy == 0)
+						{
+							if (dx > 0)
+							{
+								carAngleError = -90.0;
+							} else
+							{
+								carAngleError = 90.0;
+							}
+						} else if (dx > 0)
+						{
+							if (dy > 0)
+							{
+								carAngleError = Math::ArcSin(inputX);
+								carAngleError = carAngleError * 180 / PI;
+								carAngleError = -180 + carAngleError;
+							} else
+							{
+								carAngleError = Math::ArcSin(inputX);
+								carAngleError = carAngleError * 180 / PI;
+								carAngleError = -carAngleError;
+							}
+						} else
+						{
+							if (dy > 0)
+							{
+								carAngleError = Math::ArcSin(-inputX);
+								carAngleError = carAngleError * 180 / PI;
+								carAngleError = 180 - carAngleError;
+							} else
+							{
+								carAngleError = Math::ArcSin(-inputX);
+								carAngleError = carAngleError * 180 / PI;
+							}
+						}
+					}
+
+#ifdef ENABLE_LCD
+					char buffer[200];
+					//for testing new bluetooth code
+					lcdP->SetRegion(Lcd::Rect(0, 0, 128, 50));
+					sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d\n", beacon.x,
+						beacon.y, carH.x, carH.y, carT.x, carT.y);
+					writerP->WriteString(buffer);
+
+					lcdP->SetRegion(Lcd::Rect(0, 60, 128, 50));
+					sprintf(buffer, "Error: %f\nAngle: %f\n", carAngleError, angleTracking(carT, carH));
+					writerP->WriteString(buffer);
+#endif //ENABLE_LCD
 
 
+//						char buffer[100];
+//						sprintf(buffer, "%f\n", carAngleError);
+//						bluetoothP->SendStr(buffer);
+					carAngleError -= angleTracking(carT, carH);
+					boundAngle(carAngleError);
 
 
+					{
+#define OFFSET_DISTANCE 8
+						//offset an angle to avoid go directly to the beacon
+						float tanOffsetAngle = 1.0 * OFFSET_DISTANCE / hyp;
+						float offsetAngle = Math::ArcTan(tanOffsetAngle) * 180 / PI;
+						if (carAngleError >= 0)
+						{
+							carAngleError -= offsetAngle;
+							if (carAngleError < 0)
+							{
+								carAngleError = offsetAngle;
+							}
+						} else {
+							carAngleError += offsetAngle;
+							if (carAngleError > 0)
+							{
+								carAngleError = -offsetAngle;
+							}
+						}
+					}
 
+// 						char buffer[100];
+// 						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
+// 						bluetoothP[1]->SendStr(buffer);
 
+					//may do something with the distance and speed
+				}
+			}
 
+			//must have for steering
+			if (moveBack == false && moveForward == false && lockServo == false)
+			{
+				//control servo and motor
+				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKP
+					+ (carAngleError - carAngleErrorPrevious) * servoKD);
 
-//			//calculate car beacon angle with angle in image and car drifted angle
-//			//update car drifted angle from mpu
-//			mpuP->Update();
-//			for(int i = 0; i < 3; i++)
-//			{
-//				acc[i] = mpuP->GetAccel()[i];
-//				gyo[i] = mpuP->GetOmega()[i];
-//			}
-//
-//			//car heading angle from gyroscope
-//			carHeadingAngle = carHeadingAngle + ( gyo[2] / countConstant);
-//			if(carHeadingAngle > 180)
-//			{	carHeadingAngle = carHeadingAngle - 360;	}
-//			else if(carHeadingAngle < -180)
-//			{	carHeadingAngle = 360 + carHeadingAngle;	}
-//
-//
-//
-//
-//// 			char buffer[50];
-//// 			sprintf(buffer, "carHeadingAngle: %f\n", carHeadingAngle);
-//// 			bluetoothP[0]->SendStr(buffer);
-//
-//// //			bluetoothP->SendStr("acc  \t");
-//// //			for(int i = 0; i < 3; i++)
-//// //			{
-//// //				char buffer[60];
-//// //				sprintf(buffer, "%d: %d\t", i, acc[i]);
-//// //				bluetoothP->SendStr(buffer);
-//// //			}
-//// //			bluetoothP->SendStr("\n");
+				if (servoOutput > SERVO_LEFT_LIMIT)
+					servoOutput = SERVO_LEFT_LIMIT;
+				else if (servoOutput < SERVO_RIGHT_LIMIT)
+					servoOutput = SERVO_RIGHT_LIMIT;
 
+				carAngleErrorPrevious = carAngleError;
+				servo.SetDegree(servoOutput);
+			}
 
+			if (distanceSquare(carH, beacon) < 13 * 13)
+			{
+				motorSetPower(0, 0);
+				beaconCarVeryClose = true;
+			} else
+			{
+				motorSetPower(200, 200);
+				beaconCarVeryClose = false;
+			}
 
-
-
-
-// 			//angle calculation
-// 			if ((beacon != Coor()) && carT != Coor())
-// 			{
-// 				ledP[1]->Switch();
-// 				Coor carCentre((carT.x + carH.x)/2, (carT.y + carH.y)/2);
-// 				int16_t dx = beacon.x - carCentre.x;
-// 				int16_t dy = beacon.y - carCentre.y;
-
-// 				//calculate local angle
-// 				uint32_t hyp = distanceSquare(carCentre, beacon);
-// 				if (hyp != 0)
-// 				{
-// 					if (dx == 0)
-// 					{
-// 						if (dy > 0)
-// 						{
-// 							carAngleError = 179.999999999;
-// 						} else
-// 						{
-// 							carAngleError = 0.0;
-// 						}
-// 					} else //dx != 0
-// 					{
-// 						float inputX = dx / Math::Sqrt2(hyp);
-// 						if (dy == 0)
-// 						{
-// 							if (dx > 0)
-// 							{
-// 								carAngleError = -90.0;
-// 							} else
-// 							{
-// 								carAngleError = 90.0;
-// 							}
-// 						} else if (dx > 0)
-// 						{
-// 							if (dy > 0)
-// 							{
-// 								carAngleError = Math::ArcSin(inputX);
-// 								carAngleError = carAngleError * 180 / PI;
-// 								carAngleError = -180 + carAngleError;
-// 							} else
-// 							{
-// 								carAngleError = Math::ArcSin(inputX);
-// 								carAngleError = carAngleError * 180 / PI;
-// 								carAngleError = -carAngleError;
-// 							}
-// 						} else
-// 						{
-// 							if (dy > 0)
-// 							{
-// 								carAngleError = Math::ArcSin(-inputX);
-// 								carAngleError = carAngleError * 180 / PI;
-// 								carAngleError = 180 - carAngleError;
-// 							} else
-// 							{
-// 								carAngleError = Math::ArcSin(-inputX);
-// 								carAngleError = carAngleError * 180 / PI;
-// 							}
-// 						}
-// 					}
-
-// #ifdef ENABLE_LCD
-// 					char buffer[200];
-// 					//for testing new bluetooth code
-// 					lcdP->SetRegion(Lcd::Rect(0, 0, 128, 50));
-// 					sprintf(buffer, "Bea: %d %d\nCH:\t%d %d\nCT:\t%d %d\n", beacon.x,
-// 						beacon.y, carH.x, carH.y, carT.x, carT.y);
-// 					writerP->WriteString(buffer);
-
-// 					lcdP->SetRegion(Lcd::Rect(0, 60, 128, 50));
-// 					sprintf(buffer, "Error: %f\nAAngle: %f\n", carAngleError, angleTracking(carT, carH));
-// 					writerP->WriteString(buffer);
-// #endif //ENABLE_LCD
-
-
-// //						char buffer[100];
-// //						sprintf(buffer, "%f\n", carAngleError);
-// //						bluetoothP->SendStr(buffer);
-// 					carAngleError -= angleTracking(carT, carH);
-// 					boundAngle(carAngleError);
-// // 						char buffer[100];
-// // 						sprintf(buffer, "hyp: %d\tHeadingAngle: %f\tAngleError: %f\n", hyp, carHeadingAngle, carAngleError);
-// // 						bluetoothP[1]->SendStr(buffer);
-
-// 					//may do something with the distance and speed
-// 				}
-// 			}
-
-// 			//must have for steering
-			// if (moveBack == false && moveForward == false && lockServo == false)
-// 			{
-// 				//control servo and motor
-// 				servoOutput = SERVO_CENTRE + (int16_t)(carAngleError * servoKP
-// 					+ (carAngleError - carAngleErrorPrevious) * servoKD);
-
-// 				if (servoOutput > SERVO_LEFT_LIMIT)
-// 					servoOutput = SERVO_LEFT_LIMIT;
-// 				else if (servoOutput < SERVO_RIGHT_LIMIT)
-// 					servoOutput = SERVO_RIGHT_LIMIT;
-
-// 				carAngleErrorPrevious = carAngleError;
-// 				servo.SetDegree(servoOutput);
-// 				if (distanceSquare(carH, beacon) < 13 * 13)
-// 				{
-// 					motorSetPower(0, 0);
-// 					beaconCarVeryClose = true;
-// 				} else
-// 				{
-// 					motorSetPower(200, 200);
-// 					beaconCarVeryClose = false;
-// 				}
-// 			}
-
-
-// 			// //need to disable while testing with motor set power 0
-// 			// if (beaconCarVeryClose == false)
-// 			// {
-// 			// 	dodgeObstacle();
-// 			// }
+			//need to disable while testing with motor set power 0
+			if (beaconCarVeryClose == false)
+			{
+				dodgeObstacle();
+			}
 
 		}//end if for checking time
 	}//end while loop
@@ -876,7 +854,15 @@ void dodgeObstacle()
 	if ((eReadingL < 20) && (eReadingR < 20) && (eReadingR >= 0) && (eReadingR >= 0))
 	{
 		if(moveForward == false)
+		{
 			moveBack = true;
+			
+
+
+			//IMPORTANT HERE
+			//need to override the lockServo for move backward
+			lockServo = false;
+		}
 	}
 
 	//move backward
@@ -927,14 +913,14 @@ float angleTracking(Coor carT, Coor carH)
 	//it is assumed that carT and carH is not the same point
 	// -180 to 180 deg
 
-	int deltaX = carH.x - carT.x;
-	int deltaY = carH.y - carT.y;
+	int16_t deltaX = carH.x - carT.x;
+	int16_t deltaY = carH.y - carT.y;
 
 	if (deltaX != 0)
 	{
 		// The degree that the image has rotated
 		// rad -> deg
-		float angle = 180 * Math::ArcTan((float) abs(deltaY) / abs(deltaX)) / 3.141592654;
+		float angle = 180 * Math::ArcTan((float) abs(deltaY) / abs(deltaX)) / PI;
 		if (deltaX > 0)
 		{
 			if (deltaY > 0)
@@ -1015,8 +1001,42 @@ Mpu6050::Config getMpuConfig()
 
 bool bluetoothListenerOne(const Byte* data, const size_t size)
 {
-	ledP[3]->Switch();
+//	if(startFlag == false){
+//		if (*data == 's')
+//		{
+//			startFlag = true;
+//		}
+//	}else
+//	{
+//		if(*data <= '9' && *data >= '0')
+//		{
+//			messageFromDrone += *data;
+//		}else if(*data == ',')
+//		{
+//			int32_t tempCoordinate = std::stoi(messageFromDrone);
+//			coorBuffer.push_back(tempCoordinate);
+//			messageFromDrone.clear();
+//		}else if(*data == 'e')
+//		{
+//			beacon = Coor(coorBuffer[0], coorBuffer[1]);
+//			carH = Coor(coorBuffer[2], coorBuffer[3]);
+//			carT = Coor(coorBuffer[4], coorBuffer[5]);
+//			coorBuffer.clear();
+//			startFlag = false;
+//		}
+//	}
+//
+//	if(*data == 'g')
+//	{
+//		startTheCarProcess = true;
+//	}
+//
+//	return true;
+}
 
+bool bluetoothListenerTwo(const Byte* data, const size_t size)
+{
+	ledP[1]->Switch();
 	if(startFlag == false){
 		if (*data == 's')
 		{
@@ -1046,12 +1066,6 @@ bool bluetoothListenerOne(const Byte* data, const size_t size)
 	{
 		startTheCarProcess = true;
 	}
-
-	return true;
-}
-
-bool bluetoothListenerTwo(const Byte* data, const size_t size)
-{
 	return true;
 }
 
