@@ -237,7 +237,7 @@ int main(void)
 	motor_Config.id=1;
 	DirMotor motorR(motor_Config);
 	motorRP = &motorR;
-	motorSetPower(160, 160);
+	motorSetPower(0, 0);
 
 
 	//---------------------------------button
@@ -415,15 +415,15 @@ int main(void)
 // //	updateCompassAngle();
 // //	float compassAngleReference = compassAngle;
 
-	startTheCarProcess = true;
-	while(!startTheCarProcess)
-	{
-		ledP[0]->Switch();
-		ledP[1]->Switch();
-		ledP[2]->Switch();
-		bluetoothP[1]->SendStr("g");
-		System::DelayMs(20);
-	}
+//	startTheCarProcess = true;
+//	while(!startTheCarProcess)
+//	{
+//		ledP[0]->Switch();
+//		ledP[1]->Switch();
+//		ledP[2]->Switch();
+//		bluetoothP[1]->SendStr("g");
+//		System::DelayMs(20);
+//	}
 
 	ledP[2]->SetEnable(false);
 
@@ -454,6 +454,9 @@ int main(void)
 
 			// if (usOn == true)
 			// {
+
+
+
 				if (usL == true) {
 					//triggering ultrasonic
 					ultraTriggerL.Set();
@@ -481,6 +484,9 @@ int main(void)
 				}
 
 				usOn = false;
+
+
+
 			// } else {
 			// 	usOn = true;
 			// }
@@ -666,21 +672,24 @@ int main(void)
 				servo.SetDegree(servoOutput);
 			}
 
-			if (distanceSquare(carH, beacon) < 13 * 13)
+			if ((beacon != Coor()) && carT != Coor())
 			{
-				motorSetPower(0, 0);
-				beaconCarVeryClose = true;
-			} else
-			{
-				motorSetPower(200, 200);
-				beaconCarVeryClose = false;
+				if (distanceSquare(carH, beacon) < 13 * 13)
+				{
+					motorSetPower(0, 0);
+					beaconCarVeryClose = true;
+				} else
+				{
+					motorSetPower(250, 250);
+					beaconCarVeryClose = false;
+				}
 			}
 
-			//need to disable while testing with motor set power 0
-			if (beaconCarVeryClose == false)
-			{
-				dodgeObstacle();
-			}
+//			need to disable while testing with motor set power 0
+//			 if (beaconCarVeryClose == false)
+//			 {
+//			 	dodgeObstacle();
+//			 }
 
 		}//end if for checking time
 	}//end while loop

@@ -36,6 +36,7 @@
 #include <libsc/lcd_typewriter.h>
 #include <libutil/math.h>
 #include <libsc/tower_pro_mg995.h>
+#include <libbase/k60/pit.h>
 #include <math.h>
 
 using namespace std;
@@ -141,6 +142,7 @@ Joystick::Config getJoystickConfig(uint8_t _id);
 //void printCameraImage(const Byte* image);
 bool bluetoothListenerOne(const Byte* data, const size_t size);
 bool bluetoothListenerTwo(const Byte* data, const size_t size);
+void PitInterrupt(Pit* pit);
 
 
 
@@ -152,7 +154,7 @@ Joystick* joystickP;
 LcdTypewriter* writerP;
 TowerProMg995* servoP[2];
 Mpu6050* mpuP;
-
+Pit* pitP;
 
 
 Byte cameraBuffer2[CAM_W * CAM_H / 8];
@@ -229,6 +231,10 @@ double angleX = 90, angleY = 90;
 double servoAngX = 0, servoAngY = 0;
 bool state = 0;
 
+
+
+uint32_t pitCheckTime = 0;
+
 ///////////////////////////////////////////////////////This is for the drone
 int main(void)
 {
@@ -276,26 +282,36 @@ int main(void)
 	Ov7725 camera(getCameraConfig());
 	cameraP = &camera;
 
-	//--------------------------------servo
-	TowerProMg995::Config servoC;
-	servoC.id = 0;
-	TowerProMg995 xServo(servoC);
-	servoP[0] = &xServo;
-	servoC.id = 1;
-	TowerProMg995 yServo(servoC);
-	servoP[1] = &yServo;
-	servoP[0]->SetDegree(X_DIR_SERVO_MID);
-	servoP[1]->SetDegree(Y_DIR_SERVO_MID);
+//	//--------------------------------servo
+//	TowerProMg995::Config servoC;
+//	servoC.id = 0;
+//	TowerProMg995 xServo(servoC);
+//	servoP[0] = &xServo;
+//	servoC.id = 1;
+//	TowerProMg995 yServo(servoC);
+//	servoP[1] = &yServo;
+//	servoP[0]->SetDegree(X_DIR_SERVO_MID);
+//	servoP[1]->SetDegree(Y_DIR_SERVO_MID);
+//
+//	servoPid[0].errorSumBound = (int32_t) (750 / xKI);
+//	servoPid[1].errorSumBound = (int32_t) (750 / yKI);
 
-	servoPid[0].errorSumBound = (int32_t) (750 / xKI);
-	servoPid[1].errorSumBound = (int32_t) (750 / yKI);
+//	//--------------------------------mpu6050
+//	Mpu6050::Config mpuConfig;
+//	mpuConfig.gyro_range=Mpu6050::Config::Range::kSmall;
+//	mpuConfig.accel_range=Mpu6050::Config::Range::kSmall;
+//	Mpu6050 mpu(mpuConfig);
+//	mpuP = &mpu;
 
-	//--------------------------------mpu6050
-	Mpu6050::Config mpuConfig;
-	mpuConfig.gyro_range=Mpu6050::Config::Range::kSmall;
-	mpuConfig.accel_range=Mpu6050::Config::Range::kSmall;
-	Mpu6050 mpu(mpuConfig);
-	mpuP = &mpu;
+//	//--------------------------------pit
+//	Pit::Config pit_config;
+//	pit_config.channel = 0;
+//	pit_config.count = 37500 * 16;
+//	pit_config.is_enable = true;
+//	pit_config.isr = &PitInterrupt;
+//	Pit  pit(pit_config);
+//	pitP = &pit;
+
 
 	//data
 //	bool boolImage[CAM_W][CAM_H];
@@ -328,8 +344,6 @@ int main(void)
 			{
 				lastTime = System::Time();
 				ledP[3]->Switch();
-
-				servoStablizer();
 
 				//update camera image
 				cameraBuffer = cameraP->LockBuffer();
@@ -387,7 +401,7 @@ int main(void)
 	// 			}
 
 				determinePts(centre, carH, carT, beacon);
-				servoControl(carH, carT);
+//				servoControl(carH, carT);
 
 
 				// //signal from the car to reset the data in the drone
@@ -574,22 +588,22 @@ void meanFilter(bool des[CAM_W][CAM_H], bool in[CAM_W][CAM_H])
 
 void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 {
-	uint8_t distriX[CAM_W];
-	uint8_t distriY[CAM_H];
+	uint16_t distriX[CAM_W];
+	uint16_t distriY[CAM_H];
 	//init
-	for(uint8_t i = 0; i < CAM_W; i++)
+	for(uint16_t i = 0; i < CAM_W; i++)
 		distriX[i] = 0;
-	for(uint8_t i = 0; i < CAM_H; i++)
+	for(uint16_t i = 0; i < CAM_H; i++)
 		distriY[i] = 0;
 
 
-	for(uint8_t i = 0; i < CAM_W; i++)
+	for(uint16_t i = 0; i < CAM_W; i++)
 		for(uint8_t j = 0; j < CAM_H; j++)
 			if(in[i][j] == 0)
 				distriX[i] += 1;
 
-	for(uint8_t i = 0; i < CAM_H; i++)
-		for(uint8_t j = 0; j < CAM_W; j++)
+	for(uint16_t i = 0; i < CAM_H; i++)
+		for(uint16_t j = 0; j < CAM_W; j++)
 			if(in[j][i] == 0)
 				distriY[i] += 1;
 
@@ -622,11 +636,11 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 
 	cen.reserve(10);
 
-	for(uint8_t i = 0; i < CAM_H; i++)
+	for(uint16_t i = 0; i < CAM_H; i++)
 	{
 		if(distriY[i])
 		{
-			for(uint8_t j = 0; j < CAM_W; j++)
+			for(uint16_t j = 0; j < CAM_W; j++)
 			{
 				if(distriX[j])
 				{
@@ -765,7 +779,7 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 						uint32_t base = qForStore.size();
 						regionSize.push_back(base);
 
-						for(uint16_t k = 0; k < base; k++)
+						for(uint32_t k = 0; k < base; k++)
 						{
 							Coor tempCoor = qForStore.front();
 							qForStore.pop();
@@ -773,7 +787,6 @@ void centreFinder(vector<Coor>& cen, bool in[CAM_W][CAM_H])
 							cenY += tempCoor.y;
 						}
 						cen.push_back(Coor(cenX/base, cenY/base));
-						;
 					}//end of if one white point is found
 				}
 			}
@@ -1010,7 +1023,7 @@ bool switchBeacon(Coor bn, Coor Cr)
 void sendSignal(const Coor& b, const Coor& cH, const Coor& cT)
 {
 	string tempMessage;
-	ledP[0]->Switch();
+//	ledP[0]->Switch();
 
 	tempMessage += 's';
 	appendSingal(tempMessage, b);
@@ -1099,7 +1112,7 @@ void servoStablizer()
 	angleX = abs((0.98*gyroAngX)+(0.02*accAngX));
 	angleY = abs((0.98*gyroAngY)+(0.02*accAngY));
 	servoAngY = asin(sin((90-angleX)/180*3.1415)/sin(angleY/180*3.1415))/3.1415*180 + 3;
-	servoAngX = 90 - angleY + 8;
+	servoAngX = 90 - angleY + 15;
 	servoMoveTo(-servoAngX*7.7, servoAngY*7.7);
 }
 
@@ -1150,6 +1163,23 @@ bool bluetoothListenerOne(const Byte* data, const size_t size)
 bool bluetoothListenerTwo(const Byte* data, const size_t size)
 {
 	return true;
+}
+
+uint8_t pitCounter = 0;
+
+void PitInterrupt(Pit* pit)
+{
+//	if ((System::Time() - pitCheckTime) < 10)
+//	{
+//		ledP[3]->Switch();
+////		pitCounter++;
+////		if (pitCounter == 4) {
+////			pitCounter = 0;
+////		}
+//
+//	}
+//	pitCheckTime = System::Time();
+	servoStablizer();
 }
 
 St7735r::Config getLcdConfig()
